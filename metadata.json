@@ -1,0 +1,5 @@
+{
+  "name": "AI Facebook Post Automator",
+  "description": "An AI-powered tool to automate Facebook posts using data from Google Sheets and user-uploaded images. It generates engaging captions and allows for previewing before posting.",
+  "requestFramePermissions": []
+}
