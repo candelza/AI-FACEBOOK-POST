@@ -4,7 +4,10 @@ import type { UploadedImage } from '../types';
 export async function generatePost(
   sheetData: string,
   image: UploadedImage,
-  customPrompt: string | undefined
+  customPrompt: string | undefined,
+  temperature: number,
+  maxTokens: number,
+  shopeeLink: string | undefined
 ): Promise<string> {
   
   if (!process.env.API_KEY) {
@@ -24,8 +27,9 @@ export async function generatePost(
       1. Write a compelling and creative caption in Thai for a Facebook post based on the provided context and the attached image.
       2. The tone should be friendly, and professional, suitable for the product/service.
       3. Include a clear call-to-action (e.g., "สั่งซื้อเลย!", "สอบถามเพิ่มเติมได้ที่...", "คลิกเลย!").
-      4. Add 3-5 relevant and popular hashtags in Thai.
-      5. Use emojis appropriately to make the post more engaging.
+      ${shopeeLink ? `4. **Crucially, you must include this Shopee link in the post, preferably near the call-to-action:** ${shopeeLink}` : ''}
+      5. Add 3-5 relevant and popular hashtags in Thai.
+      6. Use emojis appropriately to make the post more engaging.
       ${customPrompt ? `\n**User's Custom Instructions (in Thai):**\n${customPrompt}` : ''}
 
       Generate only the text for the post caption. Do not include any other explanatory text or markdown formatting.
@@ -45,6 +49,12 @@ export async function generatePost(
     const response = await ai.models.generateContent({
         model: 'gemini-2.5-flash',
         contents: { parts: [textPart, imagePart] },
+        config: {
+            temperature: temperature,
+            maxOutputTokens: maxTokens,
+            // Reserve some tokens for thinking to avoid empty responses when maxOutputTokens is set.
+            thinkingConfig: { thinkingBudget: Math.floor(maxTokens / 2) },
+        }
     });
 
     return response.text.trim();

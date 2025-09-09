@@ -18,9 +18,15 @@ const promptTemplates = [
   { name: '— เลือกเทมเพลต หรือ พิมพ์ด้านล่าง —', value: '' },
   { name: 'โทนสนุกสนาน', value: 'เขียนแคปชั่นให้ดูสนุกสนาน, เป็นกันเอง, และใช้อิโมจิเยอะๆ เพื่อสร้างการมีส่วนร่วม' },
   { name: 'โทนมืออาชีพ', value: 'เขียนแคปชั่นด้วยภาษาที่เป็นทางการ, สุภาพ, และน่าเชื่อถือ เน้นการให้ข้อมูลที่ชัดเจน' },
-  { name: 'ประกาศลดราคา', value: 'เขียนแคปชั่นเพื่อประกาศโปรโมชั่นลดราคา สร้างความรู้สึกเร่งด่วนและคุ้มค่า เชิญชวนให้รีบซื้อ' },
+  { name: 'โทนขำขัน/ติดตลก', value: 'เขียนแคปชั่นให้อ่านแล้วอมยิ้ม มีมุกตลกเล็กน้อย ไม่เป็นทางการจนเกินไป' },
+  { name: 'โทนให้ความรู้', value: 'เขียนแคปชั่นที่เน้นให้ความรู้หรือข้อมูลที่เป็นประโยชน์เกี่ยวกับสินค้า/บริการ สร้างภาพลักษณ์ของผู้เชี่ยวชาญ' },
+  { name: 'ประกาศลดราคา (เร่งด่วน)', value: 'เขียนแคปชั่นเพื่อประกาศโปรโมชั่นลดราคา สร้างความรู้สึกเร่งด่วนและคุ้มค่า ใช้คำว่า "ด่วน", "จำนวนจำกัด" เชิญชวนให้รีบซื้อ' },
   { name: 'เปิดตัวสินค้าใหม่', value: 'เขียนแคปชั่นเปิดตัวสินค้าใหม่ให้น่าตื่นเต้น เน้นจุดเด่นที่ไม่เหมือนใคร และเชิญชวนให้เป็นเจ้าของคนแรก' },
+  { name: 'โปรโมทกิจกรรม/ไลฟ์สด', value: 'เขียนแคปชั่นสำหรับโปรโมทกิจกรรม/อีเวนต์/ไลฟ์สด บอกรายละเอียดวัน-เวลา สถานที่ และสิ่งที่น่าสนใจในงาน' },
   { name: 'สร้างการมีส่วนร่วม (คำถาม)', value: 'เขียนแคปชั่นในรูปแบบคำถามปลายเปิดเพื่อกระตุ้นให้ผู้ติดตามเข้ามาแสดงความคิดเห็น' },
+  { name: 'สร้างการมีส่วนร่วม (Q&A)', value: 'เขียนแคปชั่นในรูปแบบ "ถาม-ตอบ" หรือเชิญชวนให้คนมาถามคำถามที่สงสัยเกี่ยวกับสินค้าหรือแบรนด์' },
+  { name: 'เรื่องราวเบื้องหลัง (BTS)', value: 'เขียนแคปชั่นเล่าเรื่องราวเบื้องหลังการทำงาน, การผลิต หรือที่มาของสินค้า เพื่อสร้างความเชื่อมโยงกับลูกค้า' },
+  { name: 'รีวิวจากลูกค้า (Testimonial)', value: 'เขียนแคปชั่นโดยอ้างอิงจากรีวิวของลูกค้า เน้นสร้างความน่าเชื่อถือจากผู้ใช้งานจริง' },
 ];
 
 const translateFacebookError = (error: { code: number; message: string }): string => {
@@ -45,11 +51,15 @@ const App: React.FC = () => {
   const [facebookPageId, setFacebookPageId] = useState<string>('');
   const [facebookUserToken, setFacebookUserToken] = useState<string>('');
   const [sheetData, setSheetData] = useState<string>('');
+  const [shopeeLink, setShopeeLink] = useState<string>('');
   const [uploadedImage, setUploadedImage] = useState<UploadedImage | null>(null);
   const [generatedPost, setGeneratedPost] = useState<string>('');
   const [customPrompt, setCustomPrompt] = useState<string>('');
   const [activePostId, setActivePostId] = useState<string | null>(null);
   const [scheduledTime, setScheduledTime] = useState<string>('');
+  
+  const [temperature, setTemperature] = useState<number>(0.7);
+  const [maxTokens, setMaxTokens] = useState<number>(400);
 
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isPosting, setIsPosting] = useState<boolean>(false);
@@ -107,7 +117,7 @@ const App: React.FC = () => {
     setActivePostId(null);
 
     try {
-      const postText = await generatePost(sheetData, uploadedImage, customPrompt);
+      const postText = await generatePost(sheetData, uploadedImage, customPrompt, temperature, maxTokens, shopeeLink);
       setGeneratedPost(postText);
       const newLogEntry: LogEntry = {
         id: Date.now().toString(),
@@ -124,7 +134,7 @@ const App: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [sheetData, uploadedImage, customPrompt, facebookPageId, facebookUserToken]);
+  }, [sheetData, uploadedImage, customPrompt, facebookPageId, facebookUserToken, temperature, maxTokens, shopeeLink]);
 
   const clearGeneratedPost = () => {
       setGeneratedPost('');
@@ -160,7 +170,7 @@ const App: React.FC = () => {
     // --- Success Case ---
     setLogHistory(prev =>
       prev.map(entry =>
-        entry.id === postId ? { ...entry, status: 'Posted' } : entry
+        entry.id === postId ? { ...entry, status: 'Posted', content: postContent } : entry
       )
     );
   }, [facebookPageId, facebookUserToken]);
@@ -203,23 +213,23 @@ const App: React.FC = () => {
 
     const delay = scheduleDate.getTime() - now.getTime();
     
+    const postContent = generatedPost; // Capture current post content
+    const postId = activePostId;
+
     setLogHistory(prev =>
       prev.map(entry =>
-        entry.id === activePostId
-          ? { ...entry, status: 'Scheduled', scheduledTimestamp: scheduleDate.toISOString() }
+        entry.id === postId
+          ? { ...entry, status: 'Scheduled', scheduledTimestamp: scheduleDate.toISOString(), content: postContent }
           : entry
       )
     );
     
-    const postContent = generatedPost; // Capture current post content
-    const postId = activePostId;
-
     setTimeout(async () => {
       try {
         await handlePostToFacebook(postId, postContent);
       } catch (err: any) {
         const errorMessage = err.code ? translateFacebookError(err) : 'เกิดข้อผิดพลาดในการโพสต์ตามเวลา';
-        setError(errorMessage);
+        console.error("Scheduled post failed:", errorMessage); // Log error for debugging
         setLogHistory(prev =>
             prev.map(entry =>
                 entry.id === postId ? { ...entry, status: 'Failed' } : entry
@@ -312,6 +322,12 @@ const App: React.FC = () => {
                       className="w-full p-2 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition"
                     />
                   </div>
+                   <TextInput
+                    label="Shopee Link (ถ้ามี)"
+                    value={shopeeLink}
+                    onChange={(e) => setShopeeLink(e.target.value)}
+                    placeholder="https://shopee.co.th/..."
+                  />
                   <ImageUploader key={activePostId} onImageUpload={setUploadedImage} />
                 </div>
               </Card>
@@ -344,6 +360,58 @@ const App: React.FC = () => {
                       className="w-full p-2 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition"
                     />
                   </div>
+                  
+                  <div className="pt-4 border-t border-gray-200 dark:border-gray-700">
+                    <h4 className="font-semibold text-gray-700 dark:text-gray-300 mb-3">ปรับแต่งค่า AI (ตัวเลือก)</h4>
+                    <div className="space-y-4">
+                      {/* Temperature Slider */}
+                      <div>
+                        <label htmlFor="temperature" className="flex justify-between items-center text-sm font-medium text-gray-700 dark:text-gray-300">
+                          <span>ความคิดสร้างสรรค์ (Creativity)</span>
+                          <span className="font-mono text-sm text-indigo-600 dark:text-indigo-400">{temperature.toFixed(1)}</span>
+                        </label>
+                        <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 mt-1">
+                          <span>ตรงไปตรงมา</span>
+                          <input
+                            id="temperature"
+                            type="range"
+                            min="0"
+                            max="1"
+                            step="0.1"
+                            value={temperature}
+                            onChange={(e) => setTemperature(parseFloat(e.target.value))}
+                            className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-600"
+                            aria-label="Adjust creativity"
+                          />
+                          <span>สร้างสรรค์</span>
+                        </div>
+                      </div>
+
+                      {/* Max Tokens Slider */}
+                      <div>
+                        <label htmlFor="max-tokens" className="flex justify-between items-center text-sm font-medium text-gray-700 dark:text-gray-300">
+                          <span>ความยาวของเนื้อหา</span>
+                          <span className="font-mono text-sm text-indigo-600 dark:text-indigo-400">{maxTokens} tokens</span>
+                        </label>
+                        <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 mt-1">
+                          <span>สั้น</span>
+                          <input
+                            id="max-tokens"
+                            type="range"
+                            min="100"
+                            max="800"
+                            step="50"
+                            value={maxTokens}
+                            onChange={(e) => setMaxTokens(parseInt(e.target.value, 10))}
+                            className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-600"
+                            aria-label="Adjust content length"
+                          />
+                          <span>ยาว</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
                   <Button onClick={handleGeneratePost} disabled={isGenerationDisabled} isLoading={isLoading}>
                     {isLoading ? 'กำลังสร้าง...' : 'สร้างโพสต์'}
                   </Button>
