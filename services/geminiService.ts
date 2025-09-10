@@ -67,3 +67,37 @@ export async function generatePost(
     throw new Error("ไม่สามารถสร้างโพสต์ได้ โมเดล AI อาจไม่พร้อมใช้งานหรือเกิดข้อผิดพลาด");
   }
 }
+
+export async function generateImage(prompt: string): Promise<{ base64: string, mimeType: string }> {
+  if (!process.env.API_KEY) {
+    throw new Error("Google AI API Key is not configured in the environment.");
+  }
+
+  try {
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const response = await ai.models.generateImages({
+        model: 'imagen-4.0-generate-001',
+        prompt: prompt,
+        config: {
+          numberOfImages: 1,
+          outputMimeType: 'image/png',
+          aspectRatio: '1:1',
+        },
+    });
+
+    const base64ImageBytes: string = response.generatedImages[0].image.imageBytes;
+    const imageUrl = `data:image/png;base64,${base64ImageBytes}`;
+    
+    return {
+        base64: imageUrl,
+        mimeType: 'image/png'
+    };
+
+  } catch (error) {
+    console.error("Error generating image with Imagen API:", error);
+    if (error instanceof Error && error.message.includes('API key not valid')) {
+      throw new Error('Google AI API Key ที่ตั้งค่าไว้ในระบบไม่ถูกต้อง');
+    }
+    throw new Error("ไม่สามารถสร้างรูปภาพได้ โมเดล AI อาจไม่พร้อมใช้งานหรือเกิดข้อผิดพลาด");
+  }
+}

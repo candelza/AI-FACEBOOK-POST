@@ -11,8 +11,7 @@ import { LogHistory } from './components/LogHistory';
 import { InstructionsModal } from './components/InstructionsModal';
 import { InfoIcon } from './components/icons/InfoIcon';
 import type { UploadedImage, LogEntry } from './types';
-import { generatePost } from './services/geminiService';
-import { HistoryIcon } from './components/icons/HistoryIcon';
+import { generatePost, generateImage } from './services/geminiService';
 
 const promptTemplates = [
   { name: '— เลือกเทมเพลต หรือ พิมพ์ด้านล่าง —', value: '' },
@@ -69,6 +68,17 @@ const App: React.FC = () => {
   const [logHistory, setLogHistory] = useState<LogEntry[]>([]);
   const [isInstructionsOpen, setIsInstructionsOpen] = useState<boolean>(false);
 
+  // Connection State
+  const [connectionStatus, setConnectionStatus] = useState<'idle' | 'verifying' | 'success' | 'error'>('idle');
+  const [connectionMessage, setConnectionMessage] = useState<string>('');
+  const [pageName, setPageName] = useState<string>('');
+  
+  // Image Generation State
+  const [imageSourceTab, setImageSourceTab] = useState<'upload' | 'generate'>('upload');
+  const [imageGenerationPrompt, setImageGenerationPrompt] = useState<string>('');
+  const [isGeneratingImage, setIsGeneratingImage] = useState<boolean>(false);
+
+
   useEffect(() => {
     try {
       const savedHistory = localStorage.getItem('fbPostHistory');
@@ -101,13 +111,65 @@ const App: React.FC = () => {
     document.body.removeChild(link);
   };
 
+  const handleVerifyConnection = useCallback(async () => {
+    setConnectionStatus('verifying');
+    setConnectionMessage('');
+    setError(null);
+
+    await new Promise(resolve => setTimeout(resolve, 1000));
+
+    try {
+      if (facebookUserToken.toLowerCase().includes('invalid_token')) {
+        throw { code: 190, message: 'Invalid OAuth access token.' };
+      }
+      if (facebookPageId.toLowerCase().includes('permission_denied')) {
+         throw { code: 200, message: '(#200) Insufficient permission to access this page.' };
+      }
+      if (!/^\d+$/.test(facebookPageId)) {
+        throw { code: 803, message: '(#803) Some of the aliases you requested do not exist: ' + facebookPageId };
+      }
+      
+      const fakePageName = "ร้านค้าออนไลน์ GenAI ของฉัน";
+      setPageName(fakePageName);
+      setConnectionStatus('success');
+      setConnectionMessage(`เชื่อมต่อสำเร็จกับเพจ: ${fakePageName}`);
+
+    } catch (err: any) {
+         const errorMessage = err.code ? translateFacebookError(err) : (err.message || 'เกิดข้อผิดพลาดที่ไม่รู้จัก');
+         setConnectionStatus('error');
+         setConnectionMessage(errorMessage);
+    }
+  }, [facebookPageId, facebookUserToken]);
+
+  const handleDisconnect = () => {
+    setFacebookPageId('');
+    setFacebookUserToken('');
+    setPageName('');
+    setConnectionStatus('idle');
+    setConnectionMessage('');
+  };
+  
+  const handleGenerateImage = async () => {
+    if (!imageGenerationPrompt) {
+        setError('กรุณาใส่คำสั่งสำหรับสร้างรูปภาพ');
+        return;
+    }
+    setIsGeneratingImage(true);
+    setError(null);
+
+    try {
+        const { base64, mimeType } = await generateImage(imageGenerationPrompt);
+        setUploadedImage({ base64, mimeType });
+    } catch (err) {
+        setError(err instanceof Error ? err.message : 'เกิดข้อผิดพลาดในการสร้างรูปภาพ');
+    } finally {
+        setIsGeneratingImage(false);
+    }
+  };
+
   const handleGeneratePost = useCallback(async () => {
     if (!sheetData || !uploadedImage) {
       setError('กรุณาใส่ข้อมูลจาก Google Sheets และอัปโหลดรูปภาพ');
-      return;
-    }
-    if (!facebookPageId || !facebookUserToken) {
-      setError('กรุณากรอก Facebook Page ID และ User Access Token');
       return;
     }
 
@@ -134,7 +196,7 @@ const App: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [sheetData, uploadedImage, customPrompt, facebookPageId, facebookUserToken, temperature, maxTokens, shopeeLink]);
+  }, [sheetData, uploadedImage, customPrompt, facebookPageId, temperature, maxTokens, shopeeLink]);
 
   const clearGeneratedPost = () => {
       setGeneratedPost('');
@@ -144,20 +206,15 @@ const App: React.FC = () => {
   }
 
   const handlePostToFacebook = useCallback(async (postId: string, postContent: string) => {
-    // This is a simulation of a real Facebook API call.
-    // It uses "magic strings" in the input fields to trigger specific, realistic error messages.
     console.log('Attempting to post to Facebook with:', {
       pageId: facebookPageId,
-      token: '...', // Never log the real token
+      token: '...',
       message: postContent,
     });
 
-    // Simulate API network delay
     await new Promise(resolve => setTimeout(resolve, 1500));
 
-    // --- Simulation Logic for Errors ---
     if (facebookUserToken.toLowerCase().includes('invalid_token')) {
-        // Facebook API error structure
         throw { code: 190, message: 'Invalid OAuth access token.' };
     }
     if (facebookPageId.toLowerCase().includes('permission_denied')) {
@@ -167,7 +224,6 @@ const App: React.FC = () => {
         throw { code: 803, message: '(#803) Some of the aliases you requested do not exist: ' + facebookPageId };
     }
 
-    // --- Success Case ---
     setLogHistory(prev =>
       prev.map(entry =>
         entry.id === postId ? { ...entry, status: 'Posted', content: postContent } : entry
@@ -213,7 +269,7 @@ const App: React.FC = () => {
 
     const delay = scheduleDate.getTime() - now.getTime();
     
-    const postContent = generatedPost; // Capture current post content
+    const postContent = generatedPost;
     const postId = activePostId;
 
     setLogHistory(prev =>
@@ -229,7 +285,7 @@ const App: React.FC = () => {
         await handlePostToFacebook(postId, postContent);
       } catch (err: any) {
         const errorMessage = err.code ? translateFacebookError(err) : 'เกิดข้อผิดพลาดในการโพสต์ตามเวลา';
-        console.error("Scheduled post failed:", errorMessage); // Log error for debugging
+        console.error("Scheduled post failed:", errorMessage);
         setLogHistory(prev =>
             prev.map(entry =>
                 entry.id === postId ? { ...entry, status: 'Failed' } : entry
@@ -242,7 +298,8 @@ const App: React.FC = () => {
     clearGeneratedPost();
   };
 
-  const isGenerationDisabled = !sheetData || !uploadedImage || !facebookPageId || !facebookUserToken || isLoading;
+  const isConnected = connectionStatus === 'success';
+  const isGenerationDisabled = !isConnected || !sheetData || !uploadedImage || isLoading;
   const isPostingDisabled = !generatedPost || isPosting;
 
   return (
@@ -266,7 +323,7 @@ const App: React.FC = () => {
                 className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-gray-700 rounded-lg hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500 transition"
               >
                 <InfoIcon />
-                วิธีเชื่อมต่อ Facebook และ Google AI
+                วิธีเชื่อมต่อ Facebook
               </button>
             </div>
 
@@ -282,183 +339,275 @@ const App: React.FC = () => {
                 <p>{postSuccess}</p>
               </div>
             )}
+            
+            <Card title="ขั้นตอนที่ 1: เชื่อมต่อบัญชี" icon={<FacebookIcon />}>
+              <div className="space-y-4">
+                <TextInput
+                  label="Facebook Page ID"
+                  value={facebookPageId}
+                  onChange={(e) => setFacebookPageId(e.target.value)}
+                  placeholder="เช่น 123456789012345"
+                  disabled={isConnected || connectionStatus === 'verifying'}
+                />
+                <TextInput
+                  id="facebookUserToken"
+                  label="Facebook User Access Token"
+                  description={
+                    <a 
+                      href="https://developers.facebook.com/tools/explorer/" 
+                      target="_blank" 
+                      rel="noopener noreferrer" 
+                      className="text-sm text-indigo-600 dark:text-indigo-400 hover:underline font-normal"
+                    >
+                      วิธีสร้าง Access Token
+                    </a>
+                  }
+                  type="password"
+                  value={facebookUserToken}
+                  onChange={(e) => setFacebookUserToken(e.target.value)}
+                  placeholder="วาง Access Token ของคุณที่นี่"
+                  disabled={isConnected || connectionStatus === 'verifying'}
+                />
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <Card title="ขั้นตอนที่ 1: เชื่อมต่อบัญชี" icon={<FacebookIcon />}>
-                <div className="space-y-4">
-                  <TextInput
-                    label="Facebook Page ID"
-                    value={facebookPageId}
-                    onChange={(e) => setFacebookPageId(e.target.value)}
-                    placeholder="เช่น 123456789012345"
-                  />
-                  <TextInput
-                    label="Facebook User Access Token"
-                    type="password"
-                    value={facebookUserToken}
-                    onChange={(e) => setFacebookUserToken(e.target.value)}
-                    placeholder="วาง Access Token ของคุณที่นี่"
-                  />
-                </div>
-              </Card>
-
-              <Card title="ขั้นตอนที่ 2: เตรียมเนื้อหา" icon={<GoogleSheetsIcon />}>
-                <div className="space-y-4">
-                  <div className="flex flex-col">
-                    <div className="flex justify-between items-center mb-2">
-                      <label htmlFor="sheet-data" className="font-semibold text-gray-700 dark:text-gray-300">
-                        วางข้อมูลจาก Google Sheet
-                      </label>
-                      <button onClick={handleDownloadExample} className="text-sm text-indigo-600 dark:text-indigo-400 hover:underline">
-                        ดาวน์โหลดตัวอย่าง
-                      </button>
-                    </div>
-                    <textarea
-                      id="sheet-data"
-                      rows={4}
-                      value={sheetData}
-                      onChange={(e) => setSheetData(e.target.value)}
-                      placeholder="ตัวอย่าง:&#10;สินค้า: เสื้อยืด&#10;ราคา: 590 บาท&#10;โปรโมชั่น: ลด 20%"
-                      className="w-full p-2 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition"
-                    />
+                {connectionStatus !== 'success' ? (
+                  <Button 
+                    onClick={handleVerifyConnection} 
+                    isLoading={connectionStatus === 'verifying'}
+                    disabled={!facebookPageId || !facebookUserToken || connectionStatus === 'verifying'}
+                  >
+                    {connectionStatus === 'verifying' ? 'กำลังตรวจสอบ...' : 'ตรวจสอบการเชื่อมต่อ'}
+                  </Button>
+                ) : (
+                  <Button 
+                    onClick={handleDisconnect} 
+                    className="bg-red-600 hover:bg-red-700 dark:bg-red-500 dark:hover:bg-red-600"
+                  >
+                    ยกเลิกการเชื่อมต่อ
+                  </Button>
+                )}
+                
+                {connectionMessage && (
+                  <div className={`mt-4 p-3 rounded-md text-sm ${
+                    connectionStatus === 'success' ? 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300' : ''
+                  } ${
+                    connectionStatus === 'error' ? 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-300' : ''
+                  }`}>
+                    {connectionMessage}
                   </div>
-                   <TextInput
-                    label="Shopee Link (ถ้ามี)"
-                    value={shopeeLink}
-                    onChange={(e) => setShopeeLink(e.target.value)}
-                    placeholder="https://shopee.co.th/..."
-                  />
-                  <ImageUploader key={activePostId} onImageUpload={setUploadedImage} />
+                )}
+              </div>
+            </Card>
+
+            <div className={`space-y-6 transition-opacity duration-500 ${!isConnected ? 'opacity-50 pointer-events-none' : 'opacity-100'}`}>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <Card title="ขั้นตอนที่ 2: เตรียมเนื้อหา" icon={<GoogleSheetsIcon />}>
+                  <div className="space-y-4">
+                    <div className="flex flex-col">
+                      <div className="flex justify-between items-center mb-2">
+                        <label htmlFor="sheet-data" className="font-semibold text-gray-700 dark:text-gray-300">
+                          วางข้อมูลจาก Google Sheet
+                        </label>
+                        <button onClick={handleDownloadExample} className="text-sm text-indigo-600 dark:text-indigo-400 hover:underline">
+                          ดาวน์โหลดตัวอย่าง
+                        </button>
+                      </div>
+                      <textarea
+                        id="sheet-data"
+                        rows={4}
+                        value={sheetData}
+                        onChange={(e) => setSheetData(e.target.value)}
+                        placeholder="ตัวอย่าง:&#10;สินค้า: เสื้อยืด&#10;ราคา: 590 บาท&#10;โปรโมชั่น: ลด 20%"
+                        className="w-full p-2 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition"
+                      />
+                    </div>
+                    <TextInput
+                      label="Shopee Link (ถ้ามี)"
+                      value={shopeeLink}
+                      onChange={(e) => setShopeeLink(e.target.value)}
+                      placeholder="https://shopee.co.th/..."
+                    />
+                    
+                     {!uploadedImage ? (
+                        <div>
+                          <div className="flex border-b border-gray-200 dark:border-gray-700 mb-4">
+                            <button
+                              onClick={() => setImageSourceTab('upload')}
+                              className={`py-2 px-4 text-sm font-medium transition-colors ${imageSourceTab === 'upload' ? 'border-b-2 border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'}`}
+                            >
+                              อัปโหลดรูปภาพ
+                            </button>
+                            <button
+                              onClick={() => setImageSourceTab('generate')}
+                              className={`py-2 px-4 text-sm font-medium transition-colors ${imageSourceTab === 'generate' ? 'border-b-2 border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'}`}
+                            >
+                              สร้างรูปภาพด้วย AI
+                            </button>
+                          </div>
+                          <div>
+                            {imageSourceTab === 'upload' && (
+                              <ImageUploader key={activePostId} onImageUpload={setUploadedImage} />
+                            )}
+                            {imageSourceTab === 'generate' && (
+                              <div className="space-y-4">
+                                <div>
+                                    <label htmlFor="image-prompt" className="mb-2 font-semibold text-gray-700 dark:text-gray-300 block">คำสั่งสำหรับสร้างรูปภาพ</label>
+                                    <textarea
+                                      id="image-prompt"
+                                      rows={3}
+                                      value={imageGenerationPrompt}
+                                      onChange={(e) => setImageGenerationPrompt(e.target.value)}
+                                      placeholder="เช่น 'แมวอวกาศใส่แว่นกันแดด, สไตล์ภาพวาดสีน้ำ'"
+                                      className="w-full p-2 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition"
+                                    />
+                                </div>
+                                <Button onClick={handleGenerateImage} isLoading={isGeneratingImage} disabled={!imageGenerationPrompt || isGeneratingImage}>
+                                  {isGeneratingImage ? 'กำลังสร้างรูปภาพ...' : 'สร้างรูปภาพ'}
+                                </Button>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex flex-col items-center">
+                            <label className="mb-2 font-semibold text-gray-700 dark:text-gray-300 self-start">
+                                รูปภาพสำหรับโพสต์
+                            </label>
+                            <img src={uploadedImage.base64} alt="Preview" className="w-full h-auto object-cover rounded-lg mb-4" />
+                            <Button onClick={() => setUploadedImage(null)} className="w-auto bg-red-600 hover:bg-red-700 dark:bg-red-500 dark:hover:bg-red-600 px-4 py-2 text-sm">
+                                เปลี่ยนรูปภาพ
+                            </Button>
+                        </div>
+                      )}
+
+                  </div>
+                </Card>
+                <Card title="ขั้นตอนที่ 3: สร้างโพสต์ด้วย AI" icon={<SparklesIcon />}>
+                <div className="space-y-4">
+                    <div className="flex flex-col space-y-2">
+                      <label htmlFor="prompt-template" className="font-semibold text-gray-700 dark:text-gray-300">
+                        คำสั่งสำหรับ AI
+                      </label>
+                      <select
+                        id="prompt-template"
+                        value={promptTemplates.find(t => t.value === customPrompt)?.value ?? ''}
+                        onChange={(e) => setCustomPrompt(e.target.value)}
+                        className="w-full p-2 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition"
+                      >
+                        {promptTemplates.map((template) => (
+                          <option key={template.name} value={template.value}>
+                            {template.name}
+                          </option>
+                        ))}
+                      </select>
+                      <textarea
+                        id="custom-prompt"
+                        rows={3}
+                        value={customPrompt}
+                        onChange={(e) => setCustomPrompt(e.target.value)}
+                        placeholder="เลือกเทมเพลต หรือพิมพ์คำสั่งของคุณที่นี่..."
+                        className="w-full p-2 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition"
+                      />
+                    </div>
+                    
+                    <div className="pt-4 border-t border-gray-200 dark:border-gray-700">
+                      <h4 className="font-semibold text-gray-700 dark:text-gray-300 mb-3">ปรับแต่งค่า AI (ตัวเลือก)</h4>
+                      <div className="space-y-4">
+                        <div>
+                          <label htmlFor="temperature" className="flex justify-between items-center text-sm font-medium text-gray-700 dark:text-gray-300">
+                            <span>ความคิดสร้างสรรค์ (Creativity)</span>
+                            <span className="font-mono text-sm text-indigo-600 dark:text-indigo-400">{temperature.toFixed(1)}</span>
+                          </label>
+                          <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 mt-1">
+                            <span>ตรงไปตรงมา</span>
+                            <input
+                              id="temperature"
+                              type="range"
+                              min="0"
+                              max="1"
+                              step="0.1"
+                              value={temperature}
+                              onChange={(e) => setTemperature(parseFloat(e.target.value))}
+                              className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-600"
+                              aria-label="Adjust creativity"
+                            />
+                            <span>สร้างสรรค์</span>
+                          </div>
+                        </div>
+
+                        <div>
+                          <label htmlFor="max-tokens" className="flex justify-between items-center text-sm font-medium text-gray-700 dark:text-gray-300">
+                            <span>ความยาวของเนื้อหา</span>
+                            <span className="font-mono text-sm text-indigo-600 dark:text-indigo-400">{maxTokens} tokens</span>
+                          </label>
+                          <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 mt-1">
+                            <span>สั้น</span>
+                            <input
+                              id="max-tokens"
+                              type="range"
+                              min="100"
+                              max="800"
+                              step="50"
+                              value={maxTokens}
+                              onChange={(e) => setMaxTokens(parseInt(e.target.value, 10))}
+                              className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-600"
+                              aria-label="Adjust content length"
+                            />
+                            <span>ยาว</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <Button onClick={handleGeneratePost} disabled={isGenerationDisabled} isLoading={isLoading}>
+                      {isLoading ? 'กำลังสร้าง...' : 'สร้างโพสต์'}
+                    </Button>
                 </div>
               </Card>
             </div>
             
-            <Card title="ขั้นตอนที่ 3: สร้างโพสต์ด้วย AI" icon={<SparklesIcon />}>
-              <div className="space-y-4">
-                  <div className="flex flex-col space-y-2">
-                    <label htmlFor="prompt-template" className="font-semibold text-gray-700 dark:text-gray-300">
-                      คำสั่งสำหรับ AI
-                    </label>
-                    <select
-                      id="prompt-template"
-                      value={promptTemplates.find(t => t.value === customPrompt)?.value ?? ''}
-                      onChange={(e) => setCustomPrompt(e.target.value)}
-                      className="w-full p-2 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition"
-                    >
-                      {promptTemplates.map((template) => (
-                        <option key={template.name} value={template.value}>
-                          {template.name}
-                        </option>
-                      ))}
-                    </select>
-                    <textarea
-                      id="custom-prompt"
-                      rows={3}
-                      value={customPrompt}
-                      onChange={(e) => setCustomPrompt(e.target.value)}
-                      placeholder="เลือกเทมเพลต หรือพิมพ์คำสั่งของคุณที่นี่..."
-                      className="w-full p-2 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition"
+              {generatedPost && uploadedImage && activePostId && (
+                <Card title="ขั้นตอนที่ 4: ตัวอย่างและโพสต์">
+                  <div className="space-y-4">
+                    <PostPreview
+                      pageName={pageName}
+                      pageId={facebookPageId}
+                      content={generatedPost}
+                      imageUrl={uploadedImage.base64}
                     />
-                  </div>
-                  
-                  <div className="pt-4 border-t border-gray-200 dark:border-gray-700">
-                    <h4 className="font-semibold text-gray-700 dark:text-gray-300 mb-3">ปรับแต่งค่า AI (ตัวเลือก)</h4>
-                    <div className="space-y-4">
-                      {/* Temperature Slider */}
+                    <textarea
+                      value={generatedPost}
+                      onChange={(e) => setGeneratedPost(e.target.value)}
+                      rows={5}
+                      className="w-full p-2 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition mt-2"
+                      aria-label="แก้ไขโพสต์ที่สร้างขึ้น"
+                    />
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-end">
                       <div>
-                        <label htmlFor="temperature" className="flex justify-between items-center text-sm font-medium text-gray-700 dark:text-gray-300">
-                          <span>ความคิดสร้างสรรค์ (Creativity)</span>
-                          <span className="font-mono text-sm text-indigo-600 dark:text-indigo-400">{temperature.toFixed(1)}</span>
-                        </label>
-                        <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 mt-1">
-                          <span>ตรงไปตรงมา</span>
-                          <input
-                            id="temperature"
-                            type="range"
-                            min="0"
-                            max="1"
-                            step="0.1"
-                            value={temperature}
-                            onChange={(e) => setTemperature(parseFloat(e.target.value))}
-                            className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-600"
-                            aria-label="Adjust creativity"
-                          />
-                          <span>สร้างสรรค์</span>
-                        </div>
+                        <label htmlFor="schedule-time" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">ตั้งเวลาโพสต์</label>
+                        <input
+                          type="datetime-local"
+                          id="schedule-time"
+                          value={scheduledTime}
+                          onChange={(e) => setScheduledTime(e.target.value)}
+                          className="w-full p-2 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-indigo-500 transition"
+                        />
+                        <Button onClick={handleSchedulePost} disabled={!scheduledTime || isPosting} isLoading={isPosting && !!scheduledTime} className="mt-2 bg-purple-600 hover:bg-purple-700 dark:bg-purple-500 dark:hover:bg-purple-600">
+                          {isPosting && !!scheduledTime ? 'กำลังตั้งเวลา...' : 'ยืนยันการตั้งเวลา'}
+                        </Button>
                       </div>
-
-                      {/* Max Tokens Slider */}
-                      <div>
-                        <label htmlFor="max-tokens" className="flex justify-between items-center text-sm font-medium text-gray-700 dark:text-gray-300">
-                          <span>ความยาวของเนื้อหา</span>
-                          <span className="font-mono text-sm text-indigo-600 dark:text-indigo-400">{maxTokens} tokens</span>
-                        </label>
-                        <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 mt-1">
-                          <span>สั้น</span>
-                          <input
-                            id="max-tokens"
-                            type="range"
-                            min="100"
-                            max="800"
-                            step="50"
-                            value={maxTokens}
-                            onChange={(e) => setMaxTokens(parseInt(e.target.value, 10))}
-                            className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-600"
-                            aria-label="Adjust content length"
-                          />
-                          <span>ยาว</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <Button onClick={handleGeneratePost} disabled={isGenerationDisabled} isLoading={isLoading}>
-                    {isLoading ? 'กำลังสร้าง...' : 'สร้างโพสต์'}
-                  </Button>
-              </div>
-            </Card>
-
-            {generatedPost && uploadedImage && activePostId && (
-              <Card title="ขั้นตอนที่ 4: ตัวอย่างและโพสต์">
-                <div className="space-y-4">
-                  <PostPreview
-                    pageId={facebookPageId}
-                    content={generatedPost}
-                    imageUrl={uploadedImage.base64}
-                  />
-                  <textarea
-                    value={generatedPost}
-                    onChange={(e) => setGeneratedPost(e.target.value)}
-                    rows={5}
-                    className="w-full p-2 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition mt-2"
-                    aria-label="แก้ไขโพสต์ที่สร้างขึ้น"
-                  />
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-end">
-                    <div>
-                      <label htmlFor="schedule-time" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">ตั้งเวลาโพสต์</label>
-                      <input
-                        type="datetime-local"
-                        id="schedule-time"
-                        value={scheduledTime}
-                        onChange={(e) => setScheduledTime(e.target.value)}
-                        className="w-full p-2 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-indigo-500 transition"
-                      />
-                      <Button onClick={handleSchedulePost} disabled={!scheduledTime || isPosting} isLoading={isPosting && !!scheduledTime} className="mt-2 bg-purple-600 hover:bg-purple-700 dark:bg-purple-500 dark:hover:bg-purple-600">
-                        {isPosting && !!scheduledTime ? 'กำลังตั้งเวลา...' : 'ยืนยันการตั้งเวลา'}
+                      <Button onClick={handlePostNow} disabled={isPostingDisabled} isLoading={isPosting && !scheduledTime} className="bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 h-[42px] self-end">
+                        {isPosting && !scheduledTime ? 'กำลังโพสต์...' : 'โพสต์ทันที'}
                       </Button>
                     </div>
-                    <Button onClick={handlePostNow} disabled={isPostingDisabled} isLoading={isPosting && !scheduledTime} className="bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 h-[42px] self-end">
-                      {isPosting && !scheduledTime ? 'กำลังโพสต์...' : 'โพสต์ทันที'}
-                    </Button>
+                    <p className="text-xs text-center text-amber-600 dark:text-amber-400 mt-2">
+                        <strong>ข้อสำคัญ:</strong> การตั้งเวลาโพสต์จะทำงานบนเบราว์เซอร์เท่านั้น กรุณาอย่าปิดแท็บนี้จนกว่าจะถึงเวลาโพสต์
+                      </p>
                   </div>
-                  <p className="text-xs text-center text-amber-600 dark:text-amber-400 mt-2">
-                      <strong>ข้อสำคัญ:</strong> การตั้งเวลาโพสต์จะทำงานบนเบราว์เซอร์เท่านั้น กรุณาอย่าปิดแท็บนี้จนกว่าจะถึงเวลาโพสต์
-                    </p>
-                </div>
-              </Card>
-            )}
+                </Card>
+              )}
 
-            <LogHistory logs={logHistory} />
+              <LogHistory logs={logHistory} />
+            </div>
           </main>
         </div>
       </div>

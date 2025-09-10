@@ -1,5 +1,5 @@
 export interface UploadedImage {
-  file: File;
+  file?: File;
   base64: string;
   mimeType: string;
 }
