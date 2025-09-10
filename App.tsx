@@ -26,25 +26,54 @@ const promptTemplates = [
   { name: 'สร้างการมีส่วนร่วม (Q&A)', value: 'เขียนแคปชั่นในรูปแบบ "ถาม-ตอบ" หรือเชิญชวนให้คนมาถามคำถามที่สงสัยเกี่ยวกับสินค้าหรือแบรนด์' },
   { name: 'เรื่องราวเบื้องหลัง (BTS)', value: 'เขียนแคปชั่นเล่าเรื่องราวเบื้องหลังการทำงาน, การผลิต หรือที่มาของสินค้า เพื่อสร้างความเชื่อมโยงกับลูกค้า' },
   { name: 'รีวิวจากลูกค้า (Testimonial)', value: 'เขียนแคปชั่นโดยอ้างอิงจากรีวิวของลูกค้า เน้นสร้างความน่าเชื่อถือจากผู้ใช้งานจริง' },
+  { name: 'ประกาศสำคัญ (ทางการ)', value: 'เขียนประกาศในรูปแบบที่เป็นทางการ เหมาะสำหรับแจ้งข่าวสำคัญ เช่น การเปลี่ยนแปลงนโยบาย, การเปิดสาขาใหม่ หรือข่าวสารจากองค์กร' },
+  { name: 'ชวนคุยแบบเป็นกันเอง', value: 'เขียนแคปชั่นเพื่อเริ่มต้นบทสนทนาแบบสบายๆ ไม่เน้นขายของ ถามคำถามง่ายๆ ที่เกี่ยวกับไลฟ์สไตล์หรือความชอบ เพื่อสร้างความสัมพันธ์กับผู้ติดตาม' },
+  { name: 'เน้นประโยชน์ที่ลูกค้าจะได้รับ', value: 'เขียนแคปชั่นโดยเน้นที่คุณประโยชน์ (Benefit) ของสินค้า ไม่ใช่แค่คุณสมบัติ (Feature) อธิบายว่าสินค้าจะช่วยแก้ปัญหาหรือทำให้ชีวิตของลูกค้าดีขึ้นได้อย่างไร' },
+  { name: 'เรื่องเล่าจากทีมงาน', value: 'เขียนแคปชั่นในรูปแบบการเล่าเรื่อง แนะนำสมาชิกในทีม หรือเล่าถึงความท้าทายและความสำเร็จในการทำงาน เพื่อสร้างภาพลักษณ์ที่เข้าถึงง่ายและเป็นมนุษย์ให้กับแบรนด์' },
 ];
 
-const translateFacebookError = (error: { code: number; message: string }): string => {
+const translateFacebookError = (error: { code: number; message: any }): string => {
+  const messageString = typeof error.message === 'string'
+    ? error.message
+    : JSON.stringify(error.message);
+
+  const message = messageString.toLowerCase();
+
   switch (error.code) {
-    case 190:
-      return 'Access Token ไม่ถูกต้องหรือหมดอายุ กรุณาตรวจสอบและสร้างใหม่จาก Facebook Developer Tools';
-    case 200:
-      if (error.message.toLowerCase().includes('permission')) {
-        return 'ไม่มีสิทธิ์ (Permission) ในการโพสต์ไปยังเพจนี้ กรุณาตรวจสอบว่า Token ของคุณมีสิทธิ์ pages_manage_posts';
+    case 190: // Invalid or expired token
+      return 'Access Token ไม่ถูกต้องหรือหมดอายุ: Token ที่คุณใช้อาจหมดอายุแล้ว กรุณากลับไปที่ "Facebook Developer Tools" เพื่อสร้าง Access Token ใหม่ และนำมาใส่ที่นี่อีกครั้ง';
+    
+    case 200: // Permissions error
+      if (message.includes('permission')) {
+        return 'โพสต์ไม่สำเร็จ: Access Token ไม่มีสิทธิ์ "pages_manage_posts" กรุณาคลิกปุ่ม "วิธีเชื่อมต่อ Facebook" เพื่อดูวิธีแก้ไขโดยละเอียด';
       }
-      return `เกิดข้อผิดพลาดที่ไม่คาดคิดจาก Facebook (Code 200): ${error.message}`;
-    case 803:
-       return 'ไม่พบเพจที่ระบุ กรุณาตรวจสอบ Page ID อีกครั้ง';
-    case 10:
-       return 'มีการเรียกใช้งาน Facebook API มากเกินไป กรุณารอสักครู่แล้วลองใหม่';
+      return `เกิดข้อผิดพลาดในการดำเนินการจาก Facebook (Code 200): ${messageString}`;
+
+    case 803: // Page not found
+      return 'ไม่พบเพจที่ระบุ: Page ID ที่คุณกรอกไม่ถูกต้องหรือไม่ตรงกับเพจใดๆ กรุณาตรวจสอบ Page ID ของคุณในหน้า "About" หรือ "Page Transparency" ของเพจอีกครั้ง';
+
+    case 10: // API limit
+      return 'เรียกใช้งานมากเกินไป: คุณได้พยายามเชื่อมต่อหรือโพสต์บ่อยเกินไป กรุณารอสักครู่ (ประมาณ 5-10 นาที) แล้วลองใหม่อีกครั้ง';
+
     default:
-      return `เกิดข้อผิดพลาดที่ไม่รู้จักจาก Facebook: ${error.message}`;
+      return `เกิดข้อผิดพลาดจาก Facebook (Code ${error.code}): ${messageString}`;
   }
 };
+
+const dataURLtoBlob = (dataurl: string) => {
+    const arr = dataurl.split(',');
+    const mimeMatch = arr[0].match(/:(.*?);/);
+    if (!mimeMatch) throw new Error('Invalid data URL');
+    const mime = mimeMatch[1];
+    const bstr = atob(arr[1]);
+    let n = bstr.length;
+    const u8arr = new Uint8Array(n);
+    while (n--) {
+        u8arr[n] = bstr.charCodeAt(n);
+    }
+    return new Blob([u8arr], { type: mime });
+};
+
 
 const App: React.FC = () => {
   const [facebookPageId, setFacebookPageId] = useState<string>('');
@@ -56,6 +85,7 @@ const App: React.FC = () => {
   const [customPrompt, setCustomPrompt] = useState<string>('');
   const [activePostId, setActivePostId] = useState<string | null>(null);
   const [scheduledTime, setScheduledTime] = useState<string>('');
+  const [postPrivacy, setPostPrivacy] = useState<'published' | 'unpublished'>('published');
   
   const [temperature, setTemperature] = useState<number>(0.7);
   const [maxTokens, setMaxTokens] = useState<number>(400);
@@ -115,24 +145,26 @@ const App: React.FC = () => {
     setConnectionStatus('verifying');
     setConnectionMessage('');
     setError(null);
+    setPageName('');
 
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    const apiVersion = 'v20.0';
+    const endpoint = `https://graph.facebook.com/${apiVersion}/${facebookPageId}?fields=name&access_token=${facebookUserToken}`;
 
     try {
-      if (facebookUserToken.toLowerCase().includes('invalid_token')) {
-        throw { code: 190, message: 'Invalid OAuth access token.' };
-      }
-      if (facebookPageId.toLowerCase().includes('permission_denied')) {
-         throw { code: 200, message: '(#200) Insufficient permission to access this page.' };
-      }
-      if (!/^\d+$/.test(facebookPageId)) {
-        throw { code: 803, message: '(#803) Some of the aliases you requested do not exist: ' + facebookPageId };
+      const response = await fetch(endpoint);
+      const result = await response.json();
+
+      if (!response.ok) {
+        if (result.error) {
+           throw { code: result.error.code, message: result.error.message };
+        }
+        throw new Error('เกิดข้อผิดพลาดในการตรวจสอบการเชื่อมต่อกับ Facebook');
       }
       
-      const fakePageName = "ร้านค้าออนไลน์ GenAI ของฉัน";
-      setPageName(fakePageName);
+      const realPageName = result.name;
+      setPageName(realPageName);
       setConnectionStatus('success');
-      setConnectionMessage(`เชื่อมต่อสำเร็จกับเพจ: ${fakePageName}`);
+      setConnectionMessage(`เชื่อมต่อสำเร็จกับเพจ: ${realPageName}`);
 
     } catch (err: any) {
          const errorMessage = err.code ? translateFacebookError(err) : (err.message || 'เกิดข้อผิดพลาดที่ไม่รู้จัก');
@@ -159,7 +191,7 @@ const App: React.FC = () => {
 
     try {
         const { base64, mimeType } = await generateImage(imageGenerationPrompt);
-        setUploadedImage({ base64, mimeType });
+        setUploadedImage({ base64, mimeType, mediaType: 'image' });
     } catch (err) {
         setError(err instanceof Error ? err.message : 'เกิดข้อผิดพลาดในการสร้างรูปภาพ');
     } finally {
@@ -186,6 +218,7 @@ const App: React.FC = () => {
         timestamp: new Date().toISOString(),
         content: postText,
         imageUrl: uploadedImage.base64,
+        mediaType: uploadedImage.mediaType,
         status: 'Generated',
         pageId: facebookPageId,
       };
@@ -203,44 +236,85 @@ const App: React.FC = () => {
       setUploadedImage(null);
       setActivePostId(null);
       setScheduledTime('');
+      setPostPrivacy('published');
   }
 
-  const handlePostToFacebook = useCallback(async (postId: string, postContent: string) => {
-    console.log('Attempting to post to Facebook with:', {
-      pageId: facebookPageId,
-      token: '...',
-      message: postContent,
-    });
-
-    await new Promise(resolve => setTimeout(resolve, 1500));
-
-    if (facebookUserToken.toLowerCase().includes('invalid_token')) {
-        throw { code: 190, message: 'Invalid OAuth access token.' };
-    }
-    if (facebookPageId.toLowerCase().includes('permission_denied')) {
-        throw { code: 200, message: '(#200) Insufficient permission to post to target page.' };
-    }
-    if (!/^\d+$/.test(facebookPageId)) {
-        throw { code: 803, message: '(#803) Some of the aliases you requested do not exist: ' + facebookPageId };
+  const handlePostToFacebook = useCallback(async (postId: string, postContent: string, image: UploadedImage | null, privacy: 'published' | 'unpublished') => {
+    if (!image) {
+      throw new Error("ไม่พบข้อมูลรูปภาพหรือวิดีโอสำหรับโพสต์");
     }
 
-    setLogHistory(prev =>
-      prev.map(entry =>
-        entry.id === postId ? { ...entry, status: 'Posted', content: postContent } : entry
-      )
-    );
+    const apiVersion = 'v20.0';
+    const isVideo = image.mediaType === 'video';
+    const endpoint = isVideo
+        ? `https://graph.facebook.com/${apiVersion}/${facebookPageId}/videos`
+        : `https://graph.facebook.com/${apiVersion}/${facebookPageId}/photos`;
+    
+    const formData = new FormData();
+    formData.append('access_token', facebookUserToken);
+
+    if (isVideo) {
+        formData.append('description', postContent);
+    } else {
+        formData.append('caption', postContent);
+    }
+    
+    if (image.file) {
+      // For user-uploaded files, use the original File object for efficiency
+      formData.append('source', image.file);
+    } else {
+      // Fallback for AI-generated images which don't have a File object
+      formData.append('source', dataURLtoBlob(image.base64));
+    }
+
+
+    if (privacy === 'unpublished') {
+      formData.append('published', 'false');
+    }
+
+    try {
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        body: formData,
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        if (result.error) {
+           throw { code: result.error.code, message: result.error.message };
+        }
+        throw new Error('เกิดข้อผิดพลาดที่ไม่รู้จักขณะโพสต์ไปยัง Facebook');
+      }
+
+      setLogHistory(prev =>
+        prev.map(entry =>
+          entry.id === postId ? { ...entry, status: 'Posted', content: postContent } : entry
+        )
+      );
+      
+      return result;
+    } catch (err) {
+      if (err instanceof Error) {
+        console.error("Facebook post error:", err.message);
+      } else {
+        console.error("Facebook post error:", JSON.stringify(err));
+      }
+      throw err;
+    }
   }, [facebookPageId, facebookUserToken]);
 
+
   const handlePostNow = async () => {
-    if (!activePostId) return;
+    if (!activePostId || !uploadedImage) return;
 
     setIsPosting(true);
     setError(null);
     setPostSuccess(null);
 
     try {
-        await handlePostToFacebook(activePostId, generatedPost);
-        setPostSuccess('โพสต์ของคุณถูกจำลองการโพสต์ลง Facebook เรียบร้อยแล้ว');
+        await handlePostToFacebook(activePostId, generatedPost, uploadedImage, postPrivacy);
+        setPostSuccess('โพสต์ของคุณถูกโพสต์ลง Facebook เรียบร้อยแล้ว');
         setTimeout(() => setPostSuccess(null), 5000);
         clearGeneratedPost();
     } catch (err: any) {
@@ -257,7 +331,7 @@ const App: React.FC = () => {
   };
   
   const handleSchedulePost = () => {
-    if (!scheduledTime || !activePostId) return;
+    if (!scheduledTime || !activePostId || !uploadedImage) return;
 
     const scheduleDate = new Date(scheduledTime);
     const now = new Date();
@@ -267,10 +341,15 @@ const App: React.FC = () => {
       return;
     }
 
+    setIsPosting(true);
+    setError(null);
+
     const delay = scheduleDate.getTime() - now.getTime();
     
     const postContent = generatedPost;
     const postId = activePostId;
+    const imageToPost = uploadedImage;
+    const privacyToSchedule = postPrivacy;
 
     setLogHistory(prev =>
       prev.map(entry =>
@@ -282,7 +361,7 @@ const App: React.FC = () => {
     
     setTimeout(async () => {
       try {
-        await handlePostToFacebook(postId, postContent);
+        await handlePostToFacebook(postId, postContent, imageToPost, privacyToSchedule);
       } catch (err: any) {
         const errorMessage = err.code ? translateFacebookError(err) : 'เกิดข้อผิดพลาดในการโพสต์ตามเวลา';
         console.error("Scheduled post failed:", errorMessage);
@@ -296,6 +375,7 @@ const App: React.FC = () => {
 
     setPostSuccess(`โพสต์ของคุณถูกตั้งเวลาแล้ว โปรดอย่าปิดแท็บนี้`);
     clearGeneratedPost();
+    setIsPosting(false); // Reset isPosting after clearing the form
   };
 
   const isConnected = connectionStatus === 'success';
@@ -434,7 +514,7 @@ const App: React.FC = () => {
                               onClick={() => setImageSourceTab('upload')}
                               className={`py-2 px-4 text-sm font-medium transition-colors ${imageSourceTab === 'upload' ? 'border-b-2 border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'}`}
                             >
-                              อัปโหลดรูปภาพ
+                              อัปโหลดสื่อ
                             </button>
                             <button
                               onClick={() => setImageSourceTab('generate')}
@@ -470,11 +550,15 @@ const App: React.FC = () => {
                       ) : (
                         <div className="flex flex-col items-center">
                             <label className="mb-2 font-semibold text-gray-700 dark:text-gray-300 self-start">
-                                รูปภาพสำหรับโพสต์
+                                สื่อสำหรับโพสต์
                             </label>
-                            <img src={uploadedImage.base64} alt="Preview" className="w-full h-auto object-cover rounded-lg mb-4" />
+                            {uploadedImage.mediaType === 'video' ? (
+                                <video src={uploadedImage.base64} controls className="w-full h-auto object-cover rounded-lg mb-4" />
+                            ) : (
+                                <img src={uploadedImage.base64} alt="Preview" className="w-full h-auto object-cover rounded-lg mb-4" />
+                            )}
                             <Button onClick={() => setUploadedImage(null)} className="w-auto bg-red-600 hover:bg-red-700 dark:bg-red-500 dark:hover:bg-red-600 px-4 py-2 text-sm">
-                                เปลี่ยนรูปภาพ
+                                เปลี่ยนสื่อ
                             </Button>
                         </div>
                       )}
@@ -573,6 +657,7 @@ const App: React.FC = () => {
                       pageId={facebookPageId}
                       content={generatedPost}
                       imageUrl={uploadedImage.base64}
+                      mediaType={uploadedImage.mediaType}
                     />
                     <textarea
                       value={generatedPost}
@@ -595,9 +680,21 @@ const App: React.FC = () => {
                           {isPosting && !!scheduledTime ? 'กำลังตั้งเวลา...' : 'ยืนยันการตั้งเวลา'}
                         </Button>
                       </div>
-                      <Button onClick={handlePostNow} disabled={isPostingDisabled} isLoading={isPosting && !scheduledTime} className="bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 h-[42px] self-end">
-                        {isPosting && !scheduledTime ? 'กำลังโพสต์...' : 'โพสต์ทันที'}
-                      </Button>
+                      <div className="space-y-2">
+                        <label htmlFor="post-privacy" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">การแสดงผล</label>
+                        <select
+                          id="post-privacy"
+                          value={postPrivacy}
+                          onChange={(e) => setPostPrivacy(e.target.value as 'published' | 'unpublished')}
+                          className="w-full p-2 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-indigo-500 transition"
+                        >
+                          <option value="published">โพสต์สาธารณะ (แสดงบนหน้าฟีด)</option>
+                          <option value="unpublished">โพสต์ที่ไม่เผยแพร่ (สำหรับโฆษณา)</option>
+                        </select>
+                        <Button onClick={handlePostNow} disabled={isPostingDisabled} isLoading={isPosting && !scheduledTime} className="bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 h-[42px] self-end">
+                          {isPosting && !scheduledTime ? 'กำลังโพสต์...' : 'โพสต์ทันที'}
+                        </Button>
+                      </div>
                     </div>
                     <p className="text-xs text-center text-amber-600 dark:text-amber-400 mt-2">
                         <strong>ข้อสำคัญ:</strong> การตั้งเวลาโพสต์จะทำงานบนเบราว์เซอร์เท่านั้น กรุณาอย่าปิดแท็บนี้จนกว่าจะถึงเวลาโพสต์

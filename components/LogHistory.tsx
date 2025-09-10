@@ -74,7 +74,11 @@ export const LogHistory: React.FC<LogHistoryProps> = ({ logs }) => {
         <div className="space-y-4 max-h-96 overflow-y-auto pr-2">
           {logs.map((log) => (
             <div key={log.id} className="flex items-start p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
-              <img src={log.imageUrl} alt="Post image" className="w-16 h-16 object-cover rounded-md mr-4" />
+              {log.mediaType === 'video' ? (
+                <video src={log.imageUrl} muted className="w-16 h-16 object-cover rounded-md mr-4" />
+              ) : (
+                <img src={log.imageUrl} alt="Post thumbnail" className="w-16 h-16 object-cover rounded-md mr-4" />
+              )}
               <div className="flex-1">
                 <div className="flex justify-between items-center mb-1">
                    <div className="flex items-center">

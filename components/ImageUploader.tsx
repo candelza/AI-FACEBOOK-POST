@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef, useEffect } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import type { UploadedImage } from '../types';
 import { UploadIcon } from './icons/UploadIcon';
 
@@ -8,24 +8,29 @@ interface ImageUploaderProps {
 
 export const ImageUploader: React.FC<ImageUploaderProps> = ({ onImageUpload }) => {
   const [preview, setPreview] = useState<string | null>(null);
+  const [previewType, setPreviewType] = useState<'image' | 'video' | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    if (file && file.type.startsWith('image/')) {
+    if (file && (file.type.startsWith('image/') || file.type.startsWith('video/'))) {
       const reader = new FileReader();
       reader.onloadend = () => {
         const base64String = reader.result as string;
+        const isVideo = file.type.startsWith('video/');
         setPreview(base64String);
+        setPreviewType(isVideo ? 'video' : 'image');
         onImageUpload({
           file: file,
           base64: base64String,
           mimeType: file.type,
+          mediaType: isVideo ? 'video' : 'image',
         });
       };
       reader.readAsDataURL(file);
     } else {
       setPreview(null);
+      setPreviewType(null);
       onImageUpload(null);
     }
   }, [onImageUpload]);
@@ -41,7 +46,7 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({ onImageUpload }) =
       }
       event.dataTransfer.clearData();
     }
-  }, []);
+  }, [handleFileChange]);
 
   const handleDragOver = (event: React.DragEvent<HTMLDivElement>) => {
     event.preventDefault();
@@ -52,18 +57,10 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({ onImageUpload }) =
     fileInputRef.current?.click();
   };
 
-  // Reset internal state if the component is being reset from parent
-  useEffect(() => {
-      if (fileInputRef.current) {
-          fileInputRef.current.value = "";
-      }
-      setPreview(null);
-  }, []);
-
   return (
     <div className="flex flex-col">
       <label className="mb-2 font-semibold text-gray-700 dark:text-gray-300">
-        อัปโหลดรูปภาพ
+        อัปโหลดรูปภาพหรือวิดีโอ
       </label>
       <div 
         className="relative w-full h-48 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg flex justify-center items-center text-gray-500 dark:text-gray-400 cursor-pointer hover:border-indigo-500 dark:hover:border-indigo-400 transition-colors"
@@ -73,18 +70,22 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({ onImageUpload }) =
       >
         <input
           type="file"
-          accept="image/png, image/jpeg, image/webp"
+          accept="image/png, image/jpeg, image/webp, video/mp4, video/mov, video/quicktime"
           onChange={handleFileChange}
           className="hidden"
           ref={fileInputRef}
         />
         {preview ? (
-          <img src={preview} alt="Image preview" className="object-cover w-full h-full rounded-lg" />
+          previewType === 'video' ? (
+             <video src={preview} muted autoPlay loop className="object-cover w-full h-full rounded-lg" />
+          ) : (
+            <img src={preview} alt="Image preview" className="object-cover w-full h-full rounded-lg" />
+          )
         ) : (
           <div className="text-center">
             <UploadIcon />
             <p>คลิกเพื่ออัปโหลด หรือลากไฟล์มาวาง</p>
-            <p className="text-xs">รองรับไฟล์: PNG, JPG, WEBP</p>
+            <p className="text-xs">รองรับ: PNG, JPG, WEBP, MP4, MOV</p>
           </div>
         )}
       </div>

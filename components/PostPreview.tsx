@@ -5,9 +5,10 @@ interface PostPreviewProps {
   pageName: string;
   content: string;
   imageUrl: string;
+  mediaType: 'image' | 'video';
 }
 
-export const PostPreview: React.FC<PostPreviewProps> = ({ pageId, pageName, content, imageUrl }) => {
+export const PostPreview: React.FC<PostPreviewProps> = ({ pageId, pageName, content, imageUrl, mediaType }) => {
   return (
     <div className="bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg p-4 shadow-md">
       <div className="flex items-center mb-3">
@@ -21,7 +22,11 @@ export const PostPreview: React.FC<PostPreviewProps> = ({ pageId, pageName, cont
       </div>
       <p className="mb-3 text-gray-800 dark:text-gray-200 whitespace-pre-wrap">{content}</p>
       <div className="rounded-lg overflow-hidden">
-        <img src={imageUrl} alt="Post preview" className="w-full h-auto object-cover" />
+        {mediaType === 'video' ? (
+            <video src={imageUrl} controls className="w-full h-auto object-cover" />
+        ) : (
+            <img src={imageUrl} alt="Post preview" className="w-full h-auto object-cover" />
+        )}
       </div>
     </div>
   );

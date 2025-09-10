@@ -57,12 +57,26 @@ export async function generatePost(
         }
     });
 
-    return response.text.trim();
+    const text = response.text;
+
+    if (text === undefined || text === null) {
+      if (response.promptFeedback?.blockReason) {
+        throw new Error(`ไม่สามารถสร้างโพสต์ได้เนื่องจากเนื้อหาถูกบล็อก: ${response.promptFeedback.blockReason}. กรุณาปรับแก้เนื้อหาหรือรูปภาพ`);
+      }
+      console.error("Gemini API returned an empty response. Full response:", JSON.stringify(response, null, 2));
+      throw new Error("โมเดล AI ไม่ได้สร้างเนื้อหาตอบกลับ กรุณาลองปรับคำสั่งหรือรูปภาพใหม่อีกครั้ง");
+    }
+
+    return text.trim();
 
   } catch (error) {
     console.error("Error generating post with Gemini API:", error);
-    if (error instanceof Error && error.message.includes('API key not valid')) {
-      throw new Error('Google AI API Key ที่ตั้งค่าไว้ในระบบไม่ถูกต้อง');
+    if (error instanceof Error) {
+      if (error.message.includes('API key not valid')) {
+        throw new Error('Google AI API Key ที่ตั้งค่าไว้ในระบบไม่ถูกต้อง');
+      }
+      // Re-throw custom error messages from the try block
+      throw error;
     }
     throw new Error("ไม่สามารถสร้างโพสต์ได้ โมเดล AI อาจไม่พร้อมใช้งานหรือเกิดข้อผิดพลาด");
   }
@@ -85,6 +99,10 @@ export async function generateImage(prompt: string): Promise<{ base64: string, m
         },
     });
 
+    if (!response.generatedImages || response.generatedImages.length === 0) {
+      console.error("Imagen API returned no images. Full response:", JSON.stringify(response, null, 2));
+      throw new Error("ไม่สามารถสร้างรูปภาพได้เนื่องจากคำสั่งอาจไม่เหมาะสมหรือขัดต่อนโยบาย กรุณาลองใช้คำสั่งอื่น");
+    }
     const base64ImageBytes: string = response.generatedImages[0].image.imageBytes;
     const imageUrl = `data:image/png;base64,${base64ImageBytes}`;
     
@@ -95,8 +113,12 @@ export async function generateImage(prompt: string): Promise<{ base64: string, m
 
   } catch (error) {
     console.error("Error generating image with Imagen API:", error);
-    if (error instanceof Error && error.message.includes('API key not valid')) {
-      throw new Error('Google AI API Key ที่ตั้งค่าไว้ในระบบไม่ถูกต้อง');
+    if (error instanceof Error) {
+      if (error.message.includes('API key not valid')) {
+        throw new Error('Google AI API Key ที่ตั้งค่าไว้ในระบบไม่ถูกต้อง');
+      }
+       // Re-throw custom error messages from the try block
+      throw error;
     }
     throw new Error("ไม่สามารถสร้างรูปภาพได้ โมเดล AI อาจไม่พร้อมใช้งานหรือเกิดข้อผิดพลาด");
   }
