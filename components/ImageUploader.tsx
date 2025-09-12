@@ -4,36 +4,79 @@ import { UploadIcon } from './icons/UploadIcon';
 
 interface ImageUploaderProps {
   onImageUpload: (image: UploadedImage | null) => void;
+  accept?: string;
+  helpText?: string;
+  acceptedMediaTypes?: ('image' | 'video')[];
+  multiple?: boolean;
 }
 
-export const ImageUploader: React.FC<ImageUploaderProps> = ({ onImageUpload }) => {
+export const ImageUploader: React.FC<ImageUploaderProps> = ({ 
+  onImageUpload,
+  accept = "image/png, image/jpeg, image/webp, video/mp4, video/mov, video/quicktime",
+  helpText = "รองรับ: PNG, JPG, WEBP, MP4, MOV",
+  acceptedMediaTypes = ['image', 'video'],
+  multiple = false,
+}) => {
   const [preview, setPreview] = useState<string | null>(null);
   const [previewType, setPreviewType] = useState<'image' | 'video' | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file && (file.type.startsWith('image/') || file.type.startsWith('video/'))) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const base64String = reader.result as string;
-        const isVideo = file.type.startsWith('video/');
-        setPreview(base64String);
-        setPreviewType(isVideo ? 'video' : 'image');
-        onImageUpload({
-          file: file,
-          base64: base64String,
-          mimeType: file.type,
-          mediaType: isVideo ? 'video' : 'image',
-        });
-      };
-      reader.readAsDataURL(file);
-    } else {
-      setPreview(null);
-      setPreviewType(null);
-      onImageUpload(null);
+    const files = event.target.files;
+    if (!files || files.length === 0) {
+      if (!multiple) {
+          setPreview(null);
+          setPreviewType(null);
+          onImageUpload(null);
+      }
+      return;
     }
-  }, [onImageUpload]);
+
+    const processFile = (file: File) => {
+        const isImage = file.type.startsWith('image/');
+        const isVideo = file.type.startsWith('video/');
+
+        if (!((isImage && acceptedMediaTypes.includes('image')) || (isVideo && acceptedMediaTypes.includes('video')))) {
+            // Skip invalid file types in multi-upload mode
+            return;
+        }
+
+        const reader = new FileReader();
+        reader.onloadend = () => {
+            const base64String = reader.result as string;
+            const mediaType = isVideo ? 'video' : 'image';
+            
+            onImageUpload({
+                file: file,
+                base64: base64String,
+                mimeType: file.type,
+                mediaType: mediaType,
+            });
+
+            if (!multiple) {
+                setPreview(base64String);
+                setPreviewType(mediaType);
+            }
+        };
+        reader.readAsDataURL(file);
+    };
+
+    // If multiple is false, clear previous upload and process the first file
+    if (!multiple) {
+        onImageUpload(null);
+        setPreview(null);
+        setPreviewType(null);
+        processFile(files[0]);
+    } else { // If multiple is true, process all selected files
+        Array.from(files).forEach(processFile);
+    }
+
+    // Clear the file input so the same file(s) can be selected again
+    if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+    }
+  }, [onImageUpload, acceptedMediaTypes, multiple]);
+
 
   const handleDrop = useCallback((event: React.DragEvent<HTMLDivElement>) => {
     event.preventDefault();
@@ -59,9 +102,6 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({ onImageUpload }) =
 
   return (
     <div className="flex flex-col">
-      <label className="mb-2 font-semibold text-gray-700 dark:text-gray-300">
-        อัปโหลดรูปภาพหรือวิดีโอ
-      </label>
       <div 
         className="relative w-full h-48 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg flex justify-center items-center text-gray-500 dark:text-gray-400 cursor-pointer hover:border-indigo-500 dark:hover:border-indigo-400 transition-colors"
         onClick={handleClick}
@@ -70,12 +110,13 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({ onImageUpload }) =
       >
         <input
           type="file"
-          accept="image/png, image/jpeg, image/webp, video/mp4, video/mov, video/quicktime"
+          accept={accept}
           onChange={handleFileChange}
           className="hidden"
           ref={fileInputRef}
+          multiple={multiple}
         />
-        {preview ? (
+        {preview && !multiple ? (
           previewType === 'video' ? (
              <video src={preview} muted autoPlay loop className="object-cover w-full h-full rounded-lg" />
           ) : (
@@ -85,7 +126,7 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({ onImageUpload }) =
           <div className="text-center">
             <UploadIcon />
             <p>คลิกเพื่ออัปโหลด หรือลากไฟล์มาวาง</p>
-            <p className="text-xs">รองรับ: PNG, JPG, WEBP, MP4, MOV</p>
+            <p className="text-xs">{helpText}</p>
           </div>
         )}
       </div>

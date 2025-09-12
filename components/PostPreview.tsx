@@ -1,16 +1,44 @@
-
-import React from 'react';
+import React, { useState, useEffect } from 'react';
+import type { UploadedImage } from '../types';
 
 interface PostPreviewProps {
   pageId: string;
   pageName: string;
   content: string;
-  imageUrl: string;
-  mediaType: 'image' | 'video';
+  media: UploadedImage[];
   onPageNameChange: (newName: string) => void;
 }
 
-export const PostPreview: React.FC<PostPreviewProps> = ({ pageId, pageName, content, imageUrl, mediaType, onPageNameChange }) => {
+const ChevronLeftIcon = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+);
+const ChevronRightIcon = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+);
+
+
+export const PostPreview: React.FC<PostPreviewProps> = ({ pageId, pageName, content, media, onPageNameChange }) => {
+  const [currentIndex, setCurrentIndex] = useState(0);
+
+  useEffect(() => {
+    // Reset index if media changes
+    setCurrentIndex(0);
+  }, [media]);
+
+  const goToPrevious = () => {
+    const isFirstSlide = currentIndex === 0;
+    const newIndex = isFirstSlide ? media.length - 1 : currentIndex - 1;
+    setCurrentIndex(newIndex);
+  };
+
+  const goToNext = () => {
+    const isLastSlide = currentIndex === media.length - 1;
+    const newIndex = isLastSlide ? 0 : currentIndex + 1;
+    setCurrentIndex(newIndex);
+  };
+  
+  const currentMedia = media.length > 0 ? media[currentIndex] : null;
+
   return (
     <div className="bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg p-4 shadow-md">
       <div className="flex items-center mb-3">
@@ -29,18 +57,33 @@ export const PostPreview: React.FC<PostPreviewProps> = ({ pageId, pageName, cont
         </div>
       </div>
       <p className="mb-3 text-gray-800 dark:text-gray-200 whitespace-pre-wrap">{content}</p>
-      <div className="rounded-lg overflow-hidden bg-gray-100 dark:bg-gray-800/50 min-h-[200px] flex items-center justify-center">
-        {imageUrl ? (
-          mediaType === 'video' ? (
-              <video src={imageUrl} controls className="w-full h-auto object-cover" />
+      <div className="relative rounded-lg overflow-hidden bg-gray-100 dark:bg-gray-800/50 min-h-[200px] flex items-center justify-center">
+        {currentMedia ? (
+          currentMedia.mediaType === 'video' ? (
+              <video src={currentMedia.base64} controls className="w-full h-auto object-cover" />
           ) : (
-              <img src={imageUrl} alt="Post preview" className="w-full h-auto object-cover" />
+              <img src={currentMedia.base64} alt="Post preview" className="w-full h-auto object-cover" />
           )
         ) : (
            <div className="text-center text-gray-500 dark:text-gray-400 text-sm">
               <p>รูปภาพหรือวิดีโอ</p>
               <p>จะแสดงที่นี่</p>
            </div>
+        )}
+        {media.length > 1 && (
+            <>
+                <button onClick={goToPrevious} className="absolute left-2 top-1/2 -translate-y-1/2 bg-black bg-opacity-40 text-white rounded-full p-1.5 hover:bg-opacity-60 transition-opacity" aria-label="Previous image">
+                    <ChevronLeftIcon />
+                </button>
+                <button onClick={goToNext} className="absolute right-2 top-1/2 -translate-y-1/2 bg-black bg-opacity-40 text-white rounded-full p-1.5 hover:bg-opacity-60 transition-opacity" aria-label="Next image">
+                    <ChevronRightIcon />
+                </button>
+                <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex space-x-2">
+                    {media.map((_, index) => (
+                        <div key={index} className={`w-2 h-2 rounded-full ${index === currentIndex ? 'bg-white' : 'bg-white/50'}`}></div>
+                    ))}
+                </div>
+            </>
         )}
       </div>
     </div>

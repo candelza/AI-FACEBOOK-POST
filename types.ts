@@ -10,7 +10,7 @@ export interface LogEntry {
   timestamp: string;
   content: string;
   thumbnailUrl: string;
-  mediaType: 'image' | 'video';
+  mediaType: 'image' | 'video' | 'carousel';
   status: 'Generated' | 'Posted' | 'Scheduled' | 'Failed';
   pageId: string;
   scheduledTimestamp?: string;

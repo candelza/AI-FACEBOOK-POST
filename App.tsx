@@ -172,7 +172,7 @@ export const App: React.FC = () => {
   
   const [sheetData, setSheetData] = useState<string>('');
   const [shopeeLink, setShopeeLink] = useState<string>('');
-  const [uploadedImage, setUploadedImage] = useState<UploadedImage | null>(null);
+  const [uploadedMedia, setUploadedMedia] = useState<UploadedImage[]>([]);
   const [generatedPost, setGeneratedPost] = useState<string>('');
   const [customPrompt, setCustomPrompt] = useState<string>('');
   const [activePostId, setActivePostId] = useState<string | null>(null);
@@ -200,14 +200,22 @@ export const App: React.FC = () => {
   const [postToInstagram, setPostToInstagram] = useState<boolean>(false);
 
   // Media Generation State
-  const [imageSourceTab, setImageSourceTab] = useState<'upload' | 'generateImage' | 'generateVideo'>('upload');
+  const [postType, setPostType] = useState<'image' | 'video' | 'carousel'>('image');
+  const [mediaSourceTab, setMediaSourceTab] = useState<'upload' | 'generate'>('upload');
   const [imageGenerationPrompt, setImageGenerationPrompt] = useState<string>('');
   const [isGeneratingImage, setIsGeneratingImage] = useState<boolean>(false);
   const [videoGenerationPrompt, setVideoGenerationPrompt] = useState<string>('');
+  const [videoGenerationImage, setVideoGenerationImage] = useState<UploadedImage | null>(null);
   const [videoAspectRatio, setVideoAspectRatio] = useState<'16:9' | '9:16'>('16:9');
   const [isGeneratingVideo, setIsGeneratingVideo] = useState<boolean>(false);
   const [videoGenerationStatusMessage, setVideoGenerationStatusMessage] = useState<string | null>(null);
 
+  const handlePostTypeChange = (newType: 'image' | 'video' | 'carousel') => {
+    setPostType(newType);
+    setUploadedMedia([]);
+    setMediaSourceTab('upload');
+    setVideoGenerationImage(null);
+  };
 
   useEffect(() => {
     try {
@@ -251,6 +259,31 @@ export const App: React.FC = () => {
     setError(null);
     setPostSuccess(null);
   }
+
+  const handleImageUpload = (image: UploadedImage | null) => {
+    if (!image) {
+        // This is called with null to clear a single uploader, 
+        // which we don't want to affect the carousel array.
+        if (postType !== 'carousel') {
+             setUploadedMedia([]);
+        }
+        return;
+    }
+
+    if (postType === 'carousel') {
+        if (image.mediaType === 'image') {
+            setUploadedMedia(prev => [...prev, image]);
+        }
+        // else: silently ignore video uploads for carousel
+    } else {
+        setUploadedMedia([image]);
+    }
+  };
+
+  const handleRemoveMedia = (index: number) => {
+    setUploadedMedia(prev => prev.filter((_, i) => i !== index));
+  };
+
 
   const verifyFacebookConnection = async () => {
     if (!facebookPageId || !facebookUserToken) {
@@ -300,15 +333,15 @@ export const App: React.FC = () => {
   };
 
   const handleGeneratePost = async () => {
-    if (!sheetData || !uploadedImage) {
-      setError("กรุณากรอกข้อมูลสินค้าและอัปโหลดรูปภาพก่อน");
+    if (!sheetData || uploadedMedia.length === 0) {
+      setError("กรุณากรอกข้อมูลสินค้าและอัปโหลดสื่อก่อน");
       return;
     }
     setIsLoading(true);
     clearNotifications();
     
     try {
-      const caption = await generatePost(sheetData, uploadedImage, customPrompt, temperature, maxTokens);
+      const caption = await generatePost(sheetData, uploadedMedia, postType, customPrompt, temperature, maxTokens);
       
       let finalPost = caption.trim();
       const trimmedLink = shopeeLink.trim();
@@ -322,13 +355,14 @@ export const App: React.FC = () => {
       
       setGeneratedPost(finalPost);
       
-      const thumbnailUrl = await generateThumbnail(uploadedImage.base64, uploadedImage.mediaType);
+      const firstMedia = uploadedMedia[0];
+      const thumbnailUrl = await generateThumbnail(firstMedia.base64, firstMedia.mediaType);
       const newLog: LogEntry = {
         id: `post_${Date.now()}`,
         timestamp: new Date().toISOString(),
         content: finalPost,
         thumbnailUrl,
-        mediaType: uploadedImage.mediaType,
+        mediaType: postType,
         status: 'Generated',
         pageId: facebookPageId,
       };
@@ -349,14 +383,14 @@ export const App: React.FC = () => {
     }
     setIsGeneratingImage(true);
     clearNotifications();
-    setUploadedImage(null);
+    setUploadedMedia([]);
     try {
       const { base64, mimeType } = await generateImage(imageGenerationPrompt);
-      setUploadedImage({
+      setUploadedMedia([{
         base64,
         mimeType,
         mediaType: 'image'
-      });
+      }]);
     } catch (err: any) {
       setError(err.message || "เกิดข้อผิดพลาดในการสร้างรูปภาพ");
     } finally {
@@ -371,18 +405,19 @@ export const App: React.FC = () => {
     }
     setIsGeneratingVideo(true);
     clearNotifications();
-    setUploadedImage(null);
+    setUploadedMedia([]);
     try {
         const { base64, mimeType } = await generateVideo(
             videoGenerationPrompt,
             videoAspectRatio,
-            (message: string) => setVideoGenerationStatusMessage(message)
+            (message: string) => setVideoGenerationStatusMessage(message),
+            videoGenerationImage
         );
-        setUploadedImage({
+        setUploadedMedia([{
             base64,
             mimeType,
             mediaType: 'video'
-        });
+        }]);
     } catch (err: any) {
         setError(err.message || "เกิดข้อผิดพลาดในการสร้างวิดีโอ");
     } finally {
@@ -392,7 +427,7 @@ export const App: React.FC = () => {
   };
 
 const handlePublish = async () => {
-    if (!generatedPost || !uploadedImage || !activePostId) {
+    if (!generatedPost || uploadedMedia.length === 0 || !activePostId) {
         setError("กรุณาสร้างโพสต์ก่อน");
         return;
     }
@@ -416,99 +451,164 @@ const handlePublish = async () => {
         const pageTokenData = await pageTokenResponse.json();
         if (!pageTokenResponse.ok) throw (pageTokenData.error || pageTokenData);
         pageAccessToken = pageTokenData.access_token;
-        
+
+        let fbPostResponseData: any;
+        let successMessageText = 'Facebook';
+
         // Step 2: Post to Facebook
-        const postEndpoint = uploadedImage.mediaType === 'video'
-            ? `https://graph-video.facebook.com/v20.0/${facebookPageId}/videos`
-            : `https://graph.facebook.com/v20.0/${facebookPageId}/photos`;
+        if (postType === 'carousel') {
+            // Facebook Carousel Post
+            const attachedMedia: { media_fbid: string }[] = [];
+            for (const media of uploadedMedia) {
+                const photoFormData = new FormData();
+                photoFormData.append('access_token', pageAccessToken);
+                photoFormData.append('published', 'false'); // Upload as unpublished
+                const blob = dataURLtoBlob(media.base64);
+                photoFormData.append('source', blob, media.file?.name || 'image.png');
+                
+                const photoUploadRes = await fetch(`https://graph.facebook.com/v20.0/${facebookPageId}/photos`, { method: 'POST', body: photoFormData });
+                const photoUploadData = await photoUploadRes.json();
+                if (!photoUploadRes.ok) throw (photoUploadData.error || photoUploadData);
+                attachedMedia.push({ media_fbid: photoUploadData.id });
+            }
 
-        const fbFormData = new FormData();
-        fbFormData.append('access_token', pageAccessToken);
-        if (uploadedImage.mediaType === 'video') {
-            fbFormData.append('description', generatedPost);
-        } else {
+            const fbFormData = new FormData();
+            fbFormData.append('access_token', pageAccessToken);
             fbFormData.append('message', generatedPost);
-        }
-        const blob = dataURLtoBlob(uploadedImage.base64);
-        fbFormData.append('source', blob, uploadedImage.file?.name || (uploadedImage.mediaType === 'video' ? 'video.mp4' : 'image.png'));
-
-        const isScheduled = !!scheduledTime;
-        if (isScheduled) {
-            const scheduledTimestamp = Math.floor(new Date(scheduledTime).getTime() / 1000);
-            fbFormData.append('scheduled_publish_time', String(scheduledTimestamp));
-            fbFormData.append('published', 'false');
-        } else {
-            if (postPrivacy === 'unpublished') {
+            fbFormData.append('attached_media', JSON.stringify(attachedMedia));
+            if (!!scheduledTime) {
+                fbFormData.append('scheduled_publish_time', String(Math.floor(new Date(scheduledTime).getTime() / 1000)));
+            } else if (postPrivacy === 'unpublished') {
                 fbFormData.append('published', 'false');
                 fbFormData.append('unpublished_content_type', 'SCHEDULED');
-            } else {
-                fbFormData.append('published', 'true');
             }
-        }
-        
-        const fbPostResponse = await fetch(postEndpoint, { method: 'POST', body: fbFormData });
-        const fbPostData = await fbPostResponse.json();
-        if (!fbPostResponse.ok) throw (fbPostData.error || fbPostData);
 
-        let successMessageText = 'Facebook';
+            const fbPostResponse = await fetch(`https://graph.facebook.com/v20.0/${facebookPageId}/feed`, { method: 'POST', body: fbFormData });
+            fbPostResponseData = await fbPostResponse.json();
+            if (!fbPostResponse.ok) throw (fbPostResponseData.error || fbPostResponseData);
+        } else {
+            // Single Image or Video Post
+            const firstMedia = uploadedMedia[0];
+            const postEndpoint = firstMedia.mediaType === 'video'
+                ? `https://graph-video.facebook.com/v20.0/${facebookPageId}/videos`
+                : `https://graph.facebook.com/v20.0/${facebookPageId}/photos`;
+
+            const fbFormData = new FormData();
+            fbFormData.append('access_token', pageAccessToken);
+            fbFormData.append(firstMedia.mediaType === 'video' ? 'description' : 'message', generatedPost);
+            const blob = dataURLtoBlob(firstMedia.base64);
+            fbFormData.append('source', blob, firstMedia.file?.name || (firstMedia.mediaType === 'video' ? 'video.mp4' : 'image.png'));
+            
+            if (!!scheduledTime) {
+                fbFormData.append('scheduled_publish_time', String(Math.floor(new Date(scheduledTime).getTime() / 1000)));
+                fbFormData.append('published', 'false');
+            } else {
+                fbFormData.append('published', postPrivacy === 'published' ? 'true' : 'false');
+                 if(postPrivacy === 'unpublished') fbFormData.append('unpublished_content_type', 'SCHEDULED');
+            }
+            
+            const fbPostResponse = await fetch(postEndpoint, { method: 'POST', body: fbFormData });
+            fbPostResponseData = await fbPostResponse.json();
+            if (!fbPostResponse.ok) throw (fbPostResponseData.error || fbPostResponseData);
+        }
 
         // Step 3: Post to Instagram (if requested)
         if (postToInstagram) {
             try {
                 if (!instagramAccountId) throw new Error("Instagram Account ID is not set.");
                 
-                // 3a: Get media URL from the FB post
-                const mediaId = fbPostData.id;
-                let mediaUrl = '';
-                if (uploadedImage.mediaType === 'image') {
-                    const imageInfoRes = await fetch(`https://graph.facebook.com/v20.0/${mediaId}?fields=images&access_token=${pageAccessToken}`);
-                    const imageInfoData = await imageInfoRes.json();
-                    if (!imageInfoRes.ok) throw (imageInfoData.error || imageInfoData);
-                    if (imageInfoData.images && imageInfoData.images.length > 0) mediaUrl = imageInfoData.images[0].source;
-                } else { // Video
-                    const videoInfoRes = await fetch(`https://graph.facebook.com/v20.0/${mediaId}?fields=source&access_token=${pageAccessToken}`);
-                    const videoInfoData = await videoInfoRes.json();
-                    if (!videoInfoRes.ok) throw (videoInfoData.error || videoInfoData);
-                    mediaUrl = videoInfoData.source;
-                }
-                if (!mediaUrl) throw new Error("Could not retrieve media URL from Facebook to post to Instagram.");
-
-                // 3b: Create IG Media Container
-                const containerParams = new URLSearchParams({ access_token: pageAccessToken, caption: generatedPost });
-                if (uploadedImage.mediaType === 'image') {
-                    containerParams.append('image_url', mediaUrl);
-                } else {
-                    containerParams.append('media_type', 'VIDEO');
-                    containerParams.append('video_url', mediaUrl);
-                }
-                const containerRes = await fetch(`https://graph.facebook.com/v20.0/${instagramAccountId}/media`, { method: 'POST', body: containerParams });
-                const containerData = await containerRes.json();
-                if (!containerRes.ok) throw (containerData.error || containerData);
-                const creationId = containerData.id;
-
-                // 3c: Poll for container status
-                let containerStatus = '';
-                let attempts = 0;
-                while(containerStatus !== 'FINISHED' && attempts < 24) { // Timeout after 2 minutes
-                     await new Promise(resolve => setTimeout(resolve, 5000));
-                     const statusRes = await fetch(`https://graph.facebook.com/v20.0/${creationId}?fields=status_code&access_token=${pageAccessToken}`);
-                     const statusData = await statusRes.json();
-                     if (!statusRes.ok) throw (statusData.error || statusData);
-                     containerStatus = statusData.status_code;
-                     if(containerStatus === 'ERROR') throw new Error(`Instagram media container failed with status: ${statusData.status || 'Unknown'}`);
-                     attempts++;
-                }
-                if (containerStatus !== 'FINISHED') throw new Error("Instagram media container processing timed out.");
+                const pollContainer = async (creationId: string) => {
+                    let status = '';
+                    let attempts = 0;
+                    while (status !== 'FINISHED' && attempts < 24) {
+                        await new Promise(resolve => setTimeout(resolve, 5000));
+                        const statusRes = await fetch(`https://graph.facebook.com/v20.0/${creationId}?fields=status_code&access_token=${pageAccessToken}`);
+                        const statusData = await statusRes.json();
+                        if (!statusRes.ok) throw (statusData.error || statusData);
+                        status = statusData.status_code;
+                        if (status === 'ERROR') throw new Error(`Instagram media container failed with status: ${statusData.status || 'Unknown'}`);
+                        attempts++;
+                    }
+                    if (status !== 'FINISHED') throw new Error("Instagram media container processing timed out.");
+                };
                 
-                // 3d: Publish container
-                const publishRes = await fetch(`https://graph.facebook.com/v20.0/${instagramAccountId}/media_publish`, {
-                    method: 'POST',
-                    body: new URLSearchParams({ access_token: pageAccessToken, creation_id: creationId })
-                });
-                const publishData = await publishRes.json();
-                if (!publishRes.ok) throw (publishData.error || publishData);
+                const createIgMediaContainer = async (params: URLSearchParams) => {
+                    const res = await fetch(`https://graph.facebook.com/v20.0/${instagramAccountId}/media`, { method: 'POST', body: params });
+                    const data = await res.json();
+                    if (!res.ok) throw (data.error || data);
+                    return data.id;
+                };
 
-                successMessageText = "Facebook และ Instagram";
+                const publishIgContainer = async (creationId: string) => {
+                     const res = await fetch(`https://graph.facebook.com/v20.0/${instagramAccountId}/media_publish`, {
+                        method: 'POST',
+                        body: new URLSearchParams({ access_token: pageAccessToken, creation_id: creationId })
+                    });
+                    const data = await res.json();
+                    if (!res.ok) throw (data.error || data);
+                };
+
+                if (postType === 'carousel') {
+                    // Instagram Carousel Post
+                    const childContainerIds: string[] = [];
+                    // Get URLs for each uploaded (but unpublished) FB photo
+                     for (const media of uploadedMedia) {
+                        const blob = dataURLtoBlob(media.base64);
+                        const tempFormData = new FormData();
+                        tempFormData.append('access_token', pageAccessToken);
+                        tempFormData.append('published', 'false');
+                        tempFormData.append('source', blob);
+                        const tempUploadRes = await fetch(`https://graph.facebook.com/v20.0/${facebookPageId}/photos`, { method: 'POST', body: tempFormData });
+                        const tempUploadData = await tempUploadRes.json();
+                        if (!tempUploadRes.ok) throw (tempUploadData.error || tempUploadData);
+                        
+                        const imageInfoRes = await fetch(`https://graph.facebook.com/v20.0/${tempUploadData.id}?fields=images&access_token=${pageAccessToken}`);
+                        const imageInfoData = await imageInfoRes.json();
+                        if (!imageInfoRes.ok) throw (imageInfoData.error || imageInfoData);
+                        const mediaUrl = imageInfoData.images[0].source;
+
+                        const containerParams = new URLSearchParams({ access_token: pageAccessToken, image_url: mediaUrl, is_carousel_item: 'true' });
+                        const childId = await createIgMediaContainer(containerParams);
+                        childContainerIds.push(childId);
+                    }
+
+                    await Promise.all(childContainerIds.map(id => pollContainer(id)));
+                    
+                    const carouselContainerParams = new URLSearchParams({ access_token: pageAccessToken, media_type: 'CAROUSEL', children: childContainerIds.join(','), caption: generatedPost });
+                    const carouselCreationId = await createIgMediaContainer(carouselContainerParams);
+
+                    await pollContainer(carouselCreationId);
+                    await publishIgContainer(carouselCreationId);
+
+                } else {
+                    // Instagram Single Image/Video Post
+                    const firstMedia = uploadedMedia[0];
+                    const mediaId = fbPostResponseData.id;
+                    let mediaUrl = '';
+                    if (firstMedia.mediaType === 'image') {
+                        const imageInfoRes = await fetch(`https://graph.facebook.com/v20.0/${mediaId}?fields=images&access_token=${pageAccessToken}`);
+                        const imageInfoData = await imageInfoRes.json();
+                        if (!imageInfoRes.ok) throw (imageInfoData.error || imageInfoData);
+                        if (imageInfoData.images && imageInfoData.images.length > 0) mediaUrl = imageInfoData.images[0].source;
+                    } else { // Video
+                        const videoInfoRes = await fetch(`https://graph.facebook.com/v20.0/${mediaId}?fields=source&access_token=${pageAccessToken}`);
+                        const videoInfoData = await videoInfoRes.json();
+                        if (!videoInfoRes.ok) throw (videoInfoData.error || videoInfoData);
+                        mediaUrl = videoInfoData.source;
+                    }
+                    if (!mediaUrl) throw new Error("Could not retrieve media URL from Facebook to post to Instagram.");
+
+                    const containerParams = new URLSearchParams({ access_token: pageAccessToken, caption: generatedPost });
+                     if (firstMedia.mediaType === 'image') containerParams.append('image_url', mediaUrl);
+                     else {
+                         containerParams.append('media_type', 'VIDEO');
+                         containerParams.append('video_url', mediaUrl);
+                     }
+                    const creationId = await createIgMediaContainer(containerParams);
+                    await pollContainer(creationId);
+                    await publishIgContainer(creationId);
+                }
+                 successMessageText = "Facebook และ Instagram";
 
             } catch (igError: any) {
                 console.error("Failed to post to Instagram:", igError);
@@ -516,17 +616,17 @@ const handlePublish = async () => {
                 successMessageText = `Facebook (แต่โพสต์ลง Instagram ล้มเหลว: ${igErrorMessage})`;
             }
         }
-
-        const finalSuccessMessage = isScheduled
+        
+        const finalSuccessMessage = !!scheduledTime
             ? `ตั้งเวลาโพสต์ลง ${successMessageText} สำเร็จแล้ว`
             : (postPrivacy === 'unpublished' ? `โพสต์แบบไม่แสดงบนฟีดลง ${successMessageText} สำเร็จ` : `โพสต์ลง ${successMessageText} สำเร็จแล้ว!`);
         setPostSuccess(finalSuccessMessage);
 
         setLogHistory(prev => prev.map(log => log.id === activePostId ? {
             ...log,
-            status: isScheduled ? 'Scheduled' : 'Posted',
-            scheduledTimestamp: isScheduled ? new Date(scheduledTime).toISOString() : undefined,
-            facebookPostId: fbPostData.id,
+            status: !!scheduledTime ? 'Scheduled' : 'Posted',
+            scheduledTimestamp: !!scheduledTime ? new Date(scheduledTime).toISOString() : undefined,
+            facebookPostId: fbPostResponseData.id,
             privacy: postPrivacy,
         } : log));
         setActivePostId(null);
@@ -567,7 +667,7 @@ const handlePublish = async () => {
     }
   };
 
-  const isPostButtonDisabled = !generatedPost || !activePostId || isPosting || fbConnectionStatus !== 'success';
+  const isPostButtonDisabled = !generatedPost || uploadedMedia.length === 0 || !activePostId || isPosting || fbConnectionStatus !== 'success';
 
 
   return (
@@ -642,56 +742,73 @@ const handlePublish = async () => {
             </Card>
 
             <Card title="3. เตรียมสื่อ (รูปภาพ/วิดีโอ)" icon={<UploadIcon />}>
-                <div className="flex border-b border-gray-200 dark:border-gray-700 mb-4">
-                  <button onClick={() => setImageSourceTab('upload')} className={`px-4 py-2 text-sm font-medium ${imageSourceTab === 'upload' ? 'border-b-2 border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'}`}>อัปโหลด</button>
-                  <button onClick={() => setImageSourceTab('generateImage')} className={`px-4 py-2 text-sm font-medium ${imageSourceTab === 'generateImage' ? 'border-b-2 border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'}`}>สร้างรูปด้วย AI</button>
-                  <button onClick={() => setImageSourceTab('generateVideo')} className={`px-4 py-2 text-sm font-medium ${imageSourceTab === 'generateVideo' ? 'border-b-2 border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'}`}>สร้างวิดีโอด้วย AI</button>
-                </div>
-                {imageSourceTab === 'upload' ? (
-                  <ImageUploader onImageUpload={setUploadedImage} />
-                ) : imageSourceTab === 'generateImage' ? (
-                  <div className="space-y-3">
-                    <TextInput label="คำสั่งสำหรับสร้างรูปภาพ (ภาษาอังกฤษ)" value={imageGenerationPrompt} onChange={e => setImageGenerationPrompt(e.target.value)} placeholder="e.g., a photorealistic shot of a cotton t-shirt on a mannequin" />
-                    <Button onClick={handleGenerateImageFromPrompt} isLoading={isGeneratingImage}>สร้างรูปภาพ</Button>
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    <TextInput label="คำสั่งสำหรับสร้างวิดีโอ (ภาษาอังกฤษ)" value={videoGenerationPrompt} onChange={e => setVideoGenerationPrompt(e.target.value)} placeholder="e.g., a time-lapse of a flower blooming" />
+                <div className="space-y-4">
                     <div>
-                      <label className="mb-2 font-semibold text-gray-700 dark:text-gray-300 block">สัดส่วนภาพ (Aspect Ratio)</label>
-                      <div className="flex space-x-4">
-                        <label className="flex items-center space-x-2 cursor-pointer">
-                          <input 
-                            type="radio" 
-                            name="aspectRatio" 
-                            value="16:9" 
-                            checked={videoAspectRatio === '16:9'} 
-                            onChange={() => setVideoAspectRatio('16:9')}
-                            className="form-radio h-4 w-4 text-indigo-600 dark:text-indigo-500 border-gray-300 dark:border-gray-600 focus:ring-indigo-500"
-                          />
-                          <span className="text-sm text-gray-700 dark:text-gray-300">16:9 (แนวนอน)</span>
-                        </label>
-                        <label className="flex items-center space-x-2 cursor-pointer">
-                          <input 
-                            type="radio" 
-                            name="aspectRatio" 
-                            value="9:16" 
-                            checked={videoAspectRatio === '9:16'} 
-                            onChange={() => setVideoAspectRatio('9:16')}
-                            className="form-radio h-4 w-4 text-indigo-600 dark:text-indigo-500 border-gray-300 dark:border-gray-600 focus:ring-indigo-500"
-                          />
-                          <span className="text-sm text-gray-700 dark:text-gray-300">9:16 (แนวตั้ง)</span>
-                        </label>
-                      </div>
+                        <label className="font-semibold text-gray-700 dark:text-gray-300 block mb-3">ประเภทโพสต์</label>
+                        <div className="flex space-x-2 rounded-lg bg-gray-100 dark:bg-gray-700 p-1">
+                            {(['image', 'video', 'carousel'] as const).map(type => (
+                                <button key={type} onClick={() => handlePostTypeChange(type)} className={`w-full px-3 py-2 text-sm font-medium rounded-md transition-colors ${postType === type ? 'bg-white dark:bg-gray-900 text-indigo-700 dark:text-indigo-300 shadow' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'}`}>
+                                    {type === 'image' ? 'รูปภาพเดียว' : type === 'video' ? 'วิดีโอ' : 'หลายรูป (Carousel)'}
+                                </button>
+                            ))}
+                        </div>
                     </div>
-                    <Button onClick={handleGenerateVideo} isLoading={isGeneratingVideo}>สร้างวิดีโอ</Button>
-                    {isGeneratingVideo && videoGenerationStatusMessage && (
-                        <div className="text-center p-3 bg-indigo-50 dark:bg-indigo-900/30 rounded-lg">
-                            <p className="text-sm font-medium text-indigo-700 dark:text-indigo-300">{videoGenerationStatusMessage}</p>
+                    
+                    {postType !== 'carousel' && (
+                        <div className="flex border-b border-gray-200 dark:border-gray-700">
+                          <button onClick={() => setMediaSourceTab('upload')} className={`px-4 py-2 text-sm font-medium ${mediaSourceTab === 'upload' ? 'border-b-2 border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'}`}>อัปโหลด</button>
+                          <button onClick={() => setMediaSourceTab('generate')} className={`px-4 py-2 text-sm font-medium ${mediaSourceTab === 'generate' ? 'border-b-2 border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'}`}>สร้างด้วย AI</button>
                         </div>
                     )}
-                  </div>
-                )}
+
+                    {mediaSourceTab === 'upload' ? (
+                        <div>
+                             <ImageUploader 
+                                onImageUpload={handleImageUpload} 
+                                multiple={postType === 'carousel'}
+                                accept={postType === 'video' ? 'video/*' : 'image/*'}
+                                helpText={postType === 'video' ? 'รองรับ: MP4, MOV' : postType === 'carousel' ? 'รองรับ: PNG, JPG, WEBP' : 'รองรับ: PNG, JPG, WEBP, MP4, MOV'}
+                                acceptedMediaTypes={postType === 'video' ? ['video'] : ['image']}
+                             />
+                             {postType === 'carousel' && uploadedMedia.length > 0 && (
+                                <div className="mt-4">
+                                    <h4 className="font-semibold text-sm mb-2">รูปภาพที่เลือก ({uploadedMedia.length}/10):</h4>
+                                    <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2">
+                                        {uploadedMedia.map((media, index) => (
+                                            <div key={index} className="relative aspect-square">
+                                                <img src={media.base64} alt={`preview ${index}`} className="w-full h-full object-cover rounded-md" />
+                                                <button onClick={() => handleRemoveMedia(index)} className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full h-5 w-5 flex items-center justify-center text-xs font-bold hover:bg-red-600">&times;</button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                             )}
+                        </div>
+                    ) : postType === 'image' ? (
+                        <div className="space-y-3">
+                            <TextInput label="คำสั่งสำหรับสร้างรูปภาพ (ภาษาอังกฤษ)" value={imageGenerationPrompt} onChange={e => setImageGenerationPrompt(e.target.value)} placeholder="e.g., a photorealistic shot of a cotton t-shirt on a mannequin" />
+                            <Button onClick={handleGenerateImageFromPrompt} isLoading={isGeneratingImage}>สร้างรูปภาพ</Button>
+                        </div>
+                    ) : ( // postType === 'video'
+                        <div className="space-y-4">
+                            <TextInput label="คำสั่งสำหรับสร้างวิดีโอ (ภาษาอังกฤษ)" value={videoGenerationPrompt} onChange={e => setVideoGenerationPrompt(e.target.value)} placeholder="e.g., a time-lapse of a flower blooming" />
+                             <div className="space-y-2">
+                                <p className="font-semibold text-gray-700 dark:text-gray-300">รูปภาพเริ่มต้น (ไม่บังคับ)</p>
+                                <p className="text-xs text-gray-500 dark:text-gray-400 -mt-2 mb-2">อัปโหลดรูปภาพเพื่อใช้เป็นเฟรมเริ่มต้นในการสร้างวิดีโอ</p>
+                                <ImageUploader onImageUpload={setVideoGenerationImage} accept="image/png, image/jpeg, image/webp" helpText="รองรับ: PNG, JPG, WEBP" acceptedMediaTypes={['image']} />
+                            </div>
+                            <div>
+                              <label className="mb-2 font-semibold text-gray-700 dark:text-gray-300 block">สัดส่วนภาพ (Aspect Ratio)</label>
+                              <div className="flex space-x-4">
+                                <label className="flex items-center space-x-2 cursor-pointer"><input type="radio" name="aspectRatio" value="16:9" checked={videoAspectRatio === '16:9'} onChange={() => setVideoAspectRatio('16:9')} className="form-radio h-4 w-4 text-indigo-600" /><span className="text-sm">16:9 (แนวนอน)</span></label>
+                                <label className="flex items-center space-x-2 cursor-pointer"><input type="radio" name="aspectRatio" value="9:16" checked={videoAspectRatio === '9:16'} onChange={() => setVideoAspectRatio('9:16')} className="form-radio h-4 w-4 text-indigo-600" /><span className="text-sm">9:16 (แนวตั้ง)</span></label>
+                              </div>
+                            </div>
+                            <Button onClick={handleGenerateVideo} isLoading={isGeneratingVideo}>สร้างวิดีโอ</Button>
+                            {isGeneratingVideo && videoGenerationStatusMessage && (<div className="text-center p-3 bg-indigo-50 dark:bg-indigo-900/30 rounded-lg"><p className="text-sm font-medium text-indigo-700 dark:text-indigo-300">{videoGenerationStatusMessage}</p></div>)}
+                        </div>
+                    )}
+                </div>
             </Card>
             
             <Card title="4. สร้างแคปชั่นด้วย AI" icon={<SparklesIcon />}>
@@ -738,8 +855,7 @@ const handlePublish = async () => {
                   pageName={pageName || 'ชื่อเพจของคุณ'}
                   pageId={facebookPageId}
                   content={generatedPost || "เนื้อหาที่ AI สร้างจะแสดงที่นี่..."}
-                  imageUrl={uploadedImage?.base64 || ''}
-                  mediaType={uploadedImage?.mediaType || 'image'}
+                  media={uploadedMedia}
                   onPageNameChange={setPageName}
                 />
                 {fbConnectionStatus === 'success' && (
@@ -775,8 +891,10 @@ const handlePublish = async () => {
                     label="โพสต์ลง Instagram พร้อมกัน"
                     checked={postToInstagram}
                     onChange={(e) => setPostToInstagram(e.target.checked)}
-                    disabled={igConnectionStatus !== 'success'}
+                    disabled={igConnectionStatus !== 'success' || postType === 'video'}
                  />
+                 {postToInstagram && postType === 'video' && <p className="text-xs text-amber-600 -mt-2">การโพสต์วิดีโอลง Instagram พร้อมกันยังไม่รองรับในขณะนี้</p>}
+
                  <Button onClick={handlePublish} isLoading={isPosting} disabled={isPostButtonDisabled}>
                    {isPosting ? 'กำลังโพสต์...' : (scheduledTime ? 'ตั้งเวลาโพสต์' : 'โพสต์เลย')}
                   </Button>

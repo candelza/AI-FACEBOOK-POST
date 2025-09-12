@@ -1,10 +1,10 @@
-
 import { GoogleGenAI } from "@google/genai";
 import type { UploadedImage } from '../types';
 
 export async function generatePost(
   sheetData: string,
-  image: UploadedImage,
+  media: UploadedImage[],
+  postType: 'image' | 'video' | 'carousel',
   customPrompt: string | undefined,
   temperature: number,
   maxTokens: number
@@ -13,9 +13,18 @@ export async function generatePost(
   if (!process.env.API_KEY) {
     throw new Error("Google AI API Key is not configured in the environment.");
   }
+  if (media.length === 0) {
+      throw new Error("Cannot generate post without media.");
+  }
 
   try {
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    
+    const postTypeInstruction = {
+      image: "The user has provided a single image.",
+      video: "The user has provided a single video.",
+      carousel: "The user has provided multiple images for a carousel post. Your caption should be suitable for a multi-image post, either by creating a narrative across the images or by providing a general description that covers all of them."
+    };
 
     const prompt = `
       You are a professional social media manager creating an engaging Facebook post for a Thai audience.
@@ -23,8 +32,11 @@ export async function generatePost(
       **Context from Google Sheet:**
       ${sheetData}
 
+      **Post Format:**
+      ${postTypeInstruction[postType]}
+
       **Instructions:**
-      1. Write a compelling and creative caption in Thai for a Facebook post based on the provided context and the attached image.
+      1. Write a compelling and creative caption in Thai for a Facebook post based on the provided context and the attached image(s).
       2. The tone should be friendly, and professional, suitable for the product/service.
       3. Include a clear call-to-action (e.g., "สั่งซื้อเลย!", "สอบถามเพิ่มเติมได้ที่...", "คลิกเลย!").
       4. Add 3-5 relevant and popular hashtags in Thai.
@@ -34,20 +46,18 @@ export async function generatePost(
       Generate only the text for the post caption. A product link will be added separately, so do not include any placeholder links or URLs in your response.
     `;
 
-    const imagePart = {
+    const textPart = { text: prompt };
+    
+    const mediaParts = media.map(m => ({
       inlineData: {
-        mimeType: image.mimeType,
-        data: image.base64.split(',')[1], // Remove the data URL prefix
+        mimeType: m.mimeType,
+        data: m.base64.split(',')[1], // Remove the data URL prefix
       },
-    };
-
-    const textPart = {
-      text: prompt,
-    };
+    }));
 
     const response = await ai.models.generateContent({
         model: 'gemini-2.5-flash',
-        contents: { parts: [textPart, imagePart] },
+        contents: { parts: [textPart, ...mediaParts] },
         config: {
             temperature: temperature,
             maxOutputTokens: maxTokens,
@@ -162,7 +172,8 @@ const blobToBase64 = (blob: Blob): Promise<string> => {
 export async function generateVideo(
     prompt: string,
     aspectRatio: '16:9' | '9:16',
-    onProgress: (message: string) => void
+    onProgress: (message: string) => void,
+    image?: UploadedImage | null
 ): Promise<{ base64: string, mimeType: string }> {
     if (!process.env.API_KEY) {
         throw new Error("Google AI API Key is not configured in the environment.");
@@ -172,15 +183,24 @@ export async function generateVideo(
         const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
         
         onProgress('กำลังส่งคำขอสร้างวิดีโอ...');
-
-        let operation = await ai.models.generateVideos({
+        
+        const generateVideosRequest: any = {
             model: 'veo-2.0-generate-001',
             prompt: prompt,
             config: {
                 numberOfVideos: 1,
                 aspectRatio: aspectRatio,
             }
-        });
+        };
+
+        if (image) {
+            generateVideosRequest.image = {
+                imageBytes: image.base64.split(',')[1],
+                mimeType: image.mimeType,
+            };
+        }
+
+        let operation = await ai.models.generateVideos(generateVideosRequest);
 
         onProgress('โมเดล AI กำลังสร้างวิดีโอ... ขั้นตอนนี้อาจใช้เวลาหลายนาที กรุณารอสักครู่');
         
