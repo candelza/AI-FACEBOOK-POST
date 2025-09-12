@@ -1,5 +1,3 @@
-
-
 import React, { useState, useCallback, useEffect } from 'react';
 import { Card } from './components/Card';
 import { Button } from './components/Button';
@@ -971,13 +969,29 @@ const handlePublish = async () => {
                         {!!scheduledTime && <p className="text-xs text-amber-600 mt-1">โพสต์ที่ตั้งเวลาจะถูกตั้งเป็น Unpublished โดยอัตโนมัติ</p>}
                     </div>
                 </div>
-                 <Checkbox 
-                    label="โพสต์ลง Instagram พร้อมกัน"
-                    checked={postToInstagram}
-                    onChange={(e) => setPostToInstagram(e.target.checked)}
-                    disabled={igConnectionStatus !== 'success' || postType === 'video'}
-                 />
-                 {postToInstagram && postType === 'video' && <p className="text-xs text-amber-600 -mt-2">การโพสต์วิดีโอลง Instagram พร้อมกันยังไม่รองรับในขณะนี้</p>}
+                <div className="p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg space-y-2 border border-gray-200 dark:border-gray-700">
+                    <Checkbox
+                        label={
+                            <div className="flex items-center font-semibold">
+                                <InstagramIcon />
+                                <span className="ml-2">โพสต์ลง Instagram พร้อมกัน</span>
+                            </div>
+                        }
+                        checked={postToInstagram}
+                        onChange={(e) => setPostToInstagram(e.target.checked)}
+                        disabled={igConnectionStatus !== 'success' || postType === 'video'}
+                    />
+                    {igConnectionStatus !== 'success' && (
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                            กรุณาเชื่อมต่อบัญชี Instagram Business ให้สำเร็จก่อนเพื่อเปิดใช้งาน
+                        </p>
+                    )}
+                    {postToInstagram && postType === 'video' && (
+                        <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                            การโพสต์วิดีโอลง Instagram ยังไม่รองรับในขณะนี้
+                        </p>
+                    )}
+                </div>
 
                  <Button onClick={handlePublish} isLoading={isPosting} disabled={isPostButtonDisabled}>
                    {isPosting ? 'กำลังโพสต์...' : (scheduledTime ? 'ตั้งเวลาโพสต์' : 'โพสต์เลย')}
@@ -989,6 +1003,17 @@ const handlePublish = async () => {
           </div>
         </div>
       </main>
+      <footer className="text-center py-6 text-sm text-gray-500 dark:text-gray-400">
+        <p>พัฒนาโดย Candelaz @2025</p>
+        <a 
+          href="https://www.facebook.com/KENGZza/" 
+          target="_blank" 
+          rel="noopener noreferrer" 
+          className="hover:text-indigo-500 dark:hover:text-indigo-400 transition-colors"
+        >
+          https://www.facebook.com/KENGZza/
+        </a>
+      </footer>
       <InstructionsModal isOpen={isInstructionsOpen} onClose={() => setIsInstructionsOpen(false)} />
       <ApiKeyModal isOpen={isApiKeyModalOpen} onClose={() => setIsApiKeyModalOpen(false)} />
     </>
