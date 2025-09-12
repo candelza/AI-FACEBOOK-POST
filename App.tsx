@@ -1,3 +1,4 @@
+
 import React, { useState, useCallback, useEffect } from 'react';
 import { Card } from './components/Card';
 import { Button } from './components/Button';
@@ -5,11 +6,14 @@ import { TextInput } from './components/TextInput';
 import { ImageUploader } from './components/ImageUploader';
 import { PostPreview } from './components/PostPreview';
 import { FacebookIcon } from './components/icons/FacebookIcon';
+import { InstagramIcon } from './components/icons/InstagramIcon';
 import { GoogleSheetsIcon } from './components/icons/GoogleSheetsIcon';
 import { SparklesIcon } from './components/icons/SparklesIcon';
 import { LogHistory } from './components/LogHistory';
 import { InstructionsModal } from './components/InstructionsModal';
 import { InfoIcon } from './components/icons/InfoIcon';
+import { UploadIcon } from './components/icons/UploadIcon';
+import { Checkbox } from './components/Checkbox';
 import type { UploadedImage, LogEntry } from './types';
 import { generatePost, generateImage } from './services/geminiService';
 
@@ -27,7 +31,7 @@ const promptTemplates = [
   { name: 'เรื่องราวเบื้องหลัง (BTS)', value: 'เขียนแคปชั่นเล่าเรื่องราวเบื้องหลังการทำงาน, การผลิต หรือที่มาของสินค้า เพื่อสร้างความเชื่อมโยงกับลูกค้า' },
   { name: 'รีวิวจากลูกค้า (Testimonial)', value: 'เขียนแคปชั่นโดยอ้างอิงจากรีวิวของลูกค้า เน้นสร้างความน่าเชื่อถือจากผู้ใช้งานจริง' },
   { name: 'ประกาศสำคัญ (ทางการ)', value: 'เขียนประกาศในรูปแบบที่เป็นทางการ เหมาะสำหรับแจ้งข่าวสำคัญ เช่น การเปลี่ยนแปลงนโยบาย, การเปิดสาขาใหม่ หรือข่าวสารจากองค์กร' },
-  { name: 'ชวนคุยแบบเป็นกันเอง', value: 'เขียนแคปชั่นเพื่อเริ่มต้นบทสนทนาแบบสบายๆ ไม่เน้นขายของ ถามคำถามง่ายๆ ที่เกี่ยวกับไลฟ์สไตล์หรือความชอบ เพื่อสร้างความสัมพันธ์กับผู้ติดตาม' },
+  { name: 'ชวนคุยแบบเป็นกันเอง', value: 'เขียนแคปชั่นเพื่อเริ่มต้นบทสนทนาแบบสบายๆ ไม่เน้นขายของ ถามคำถามง่ายๆ ที่เกี่ยวกับไลฟ์สตอรี่หรือความชอบ เพื่อสร้างความสัมพันธ์กับผู้ติดตาม' },
   { name: 'เน้นประโยชน์ที่ลูกค้าจะได้รับ', value: 'เขียนแคปชั่นโดยเน้นที่คุณประโยชน์ (Benefit) ของสินค้า ไม่ใช่แค่คุณสมบัติ (Feature) อธิบายว่าสินค้าจะช่วยแก้ปัญหาหรือทำให้ชีวิตของลูกค้าดีขึ้นได้อย่างไร' },
   { name: 'เรื่องเล่าจากทีมงาน', value: 'เขียนแคปชั่นในรูปแบบการเล่าเรื่อง แนะนำสมาชิกในทีม หรือเล่าถึงความท้าทายและความสำเร็จในการทำงาน เพื่อสร้างภาพลักษณ์ที่เข้าถึงง่ายและเป็นมนุษย์ให้กับแบรนด์' },
 ];
@@ -41,7 +45,7 @@ const translateFacebookError = (error: { code: number; message: any }): string =
 
   switch (error.code) {
     case 190: // Invalid or expired token
-      return 'Access Token ไม่ถูกต้องหรือหมดอายุ: Token ที่คุณใช้อาจหมดอายุแล้ว กรุณากลับไปที่ "Facebook Developer Tools" เพื่อสร้าง Access Token ใหม่ และนำมาใส่ที่นี่อีกครั้ง';
+      return 'Access Token หมดอายุ: ระบบได้ตัดการเชื่อมต่ออัตโนมัติ กรุณาสร้าง Access Token ใหม่จาก "Facebook Developer Tools" และทำการเชื่อมต่ออีกครั้ง';
     
     case 200: // Permissions error
       if (message.includes('permission')) {
@@ -74,10 +78,63 @@ const dataURLtoBlob = (dataurl: string) => {
     return new Blob([u8arr], { type: mime });
 };
 
+const generateThumbnail = (base64: string, mediaType: 'image' | 'video'): Promise<string> => {
+    return new Promise((resolve, reject) => {
+        const MAX_WIDTH = 128;
+        const MAX_HEIGHT = 128;
 
-const App: React.FC = () => {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return reject(new Error('Could not get canvas context'));
+
+        const element = mediaType === 'image' ? new Image() : document.createElement('video');
+
+        const process = () => {
+            const isImage = mediaType === 'image';
+            const naturalWidth = isImage ? (element as HTMLImageElement).naturalWidth : (element as HTMLVideoElement).videoWidth;
+            const naturalHeight = isImage ? (element as HTMLImageElement).naturalHeight : (element as HTMLVideoElement).videoHeight;
+            
+            let width = naturalWidth;
+            let height = naturalHeight;
+
+            if (width > height) {
+                if (width > MAX_WIDTH) {
+                    height *= MAX_WIDTH / width;
+                    width = MAX_WIDTH;
+                }
+            } else {
+                if (height > MAX_HEIGHT) {
+                    width *= MAX_HEIGHT / height;
+                    height = MAX_HEIGHT;
+                }
+            }
+            canvas.width = width;
+            canvas.height = height;
+            ctx.drawImage(element as CanvasImageSource, 0, 0, width, height);
+            resolve(canvas.toDataURL('image/jpeg', 0.7)); // Use JPEG for smaller size
+        };
+
+        if (mediaType === 'image') {
+            (element as HTMLImageElement).onload = process;
+        } else {
+            const videoElement = element as HTMLVideoElement;
+            videoElement.onloadeddata = () => {
+                videoElement.currentTime = 0; // Seek to a specific frame, e.g., the first one
+            };
+            videoElement.onseeked = process;
+        }
+        
+        element.onerror = reject;
+        element.src = base64;
+    });
+};
+
+
+export const App: React.FC = () => {
   const [facebookPageId, setFacebookPageId] = useState<string>('');
   const [facebookUserToken, setFacebookUserToken] = useState<string>('');
+  const [instagramAccountId, setInstagramAccountId] = useState<string>('');
+  
   const [sheetData, setSheetData] = useState<string>('');
   const [shopeeLink, setShopeeLink] = useState<string>('');
   const [uploadedImage, setUploadedImage] = useState<UploadedImage | null>(null);
@@ -99,10 +156,14 @@ const App: React.FC = () => {
   const [isInstructionsOpen, setIsInstructionsOpen] = useState<boolean>(false);
 
   // Connection State
-  const [connectionStatus, setConnectionStatus] = useState<'idle' | 'verifying' | 'success' | 'error'>('idle');
-  const [connectionMessage, setConnectionMessage] = useState<string>('');
+  const [fbConnectionStatus, setFbConnectionStatus] = useState<'idle' | 'verifying' | 'success' | 'error'>('idle');
+  const [fbConnectionMessage, setFbConnectionMessage] = useState<string>('');
   const [pageName, setPageName] = useState<string>('');
   
+  const [igConnectionStatus, setIgConnectionStatus] = useState<'idle' | 'verifying' | 'success' | 'error'>('idle');
+  const [igConnectionMessage, setIgConnectionMessage] = useState<string>('');
+  const [postToInstagram, setPostToInstagram] = useState<boolean>(false);
+
   // Image Generation State
   const [imageSourceTab, setImageSourceTab] = useState<'upload' | 'generate'>('upload');
   const [imageGenerationPrompt, setImageGenerationPrompt] = useState<string>('');
@@ -121,7 +182,13 @@ const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    localStorage.setItem('fbPostHistory', JSON.stringify(logHistory));
+    if (logHistory.length === 0) return;
+    try {
+      const historyToSave = logHistory.length > 50 ? logHistory.slice(0, 50) : logHistory;
+      localStorage.setItem('fbPostHistory', JSON.stringify(historyToSave));
+    } catch (e) {
+       console.error("Could not save history to localStorage. It might be full.", e);
+    }
   }, [logHistory]);
 
   const handleDownloadExample = () => {
@@ -140,576 +207,425 @@ const App: React.FC = () => {
     link.click();
     document.body.removeChild(link);
   };
-
-  const handleVerifyConnection = useCallback(async () => {
-    setConnectionStatus('verifying');
-    setConnectionMessage('');
-    setError(null);
-    setPageName('');
-
-    const apiVersion = 'v20.0';
-    const endpoint = `https://graph.facebook.com/${apiVersion}/${facebookPageId}?fields=name&access_token=${facebookUserToken}`;
-
-    try {
-      const response = await fetch(endpoint);
-      const result = await response.json();
-
-      if (!response.ok) {
-        if (result.error) {
-           throw { code: result.error.code, message: result.error.message };
-        }
-        throw new Error('เกิดข้อผิดพลาดในการตรวจสอบการเชื่อมต่อกับ Facebook');
-      }
-      
-      const realPageName = result.name;
-      setPageName(realPageName);
-      setConnectionStatus('success');
-      setConnectionMessage(`เชื่อมต่อสำเร็จกับเพจ: ${realPageName}`);
-
-    } catch (err: any) {
-         const errorMessage = err.code ? translateFacebookError(err) : (err.message || 'เกิดข้อผิดพลาดที่ไม่รู้จัก');
-         setConnectionStatus('error');
-         setConnectionMessage(errorMessage);
-    }
-  }, [facebookPageId, facebookUserToken]);
-
-  const handleDisconnect = () => {
-    setFacebookPageId('');
-    setFacebookUserToken('');
-    setPageName('');
-    setConnectionStatus('idle');
-    setConnectionMessage('');
-  };
   
-  const handleGenerateImage = async () => {
-    if (!imageGenerationPrompt) {
-        setError('กรุณาใส่คำสั่งสำหรับสร้างรูปภาพ');
-        return;
-    }
-    setIsGeneratingImage(true);
+  const clearNotifications = () => {
     setError(null);
+    setPostSuccess(null);
+  }
 
-    try {
-        const { base64, mimeType } = await generateImage(imageGenerationPrompt);
-        setUploadedImage({ base64, mimeType, mediaType: 'image' });
-    } catch (err) {
-        setError(err instanceof Error ? err.message : 'เกิดข้อผิดพลาดในการสร้างรูปภาพ');
-    } finally {
-        setIsGeneratingImage(false);
-    }
-  };
-
-  const handleGeneratePost = useCallback(async () => {
-    if (!sheetData || !uploadedImage) {
-      setError('กรุณาใส่ข้อมูลจาก Google Sheets และอัปโหลดรูปภาพ');
+  const verifyFacebookConnection = async () => {
+    if (!facebookPageId || !facebookUserToken) {
+      setFbConnectionStatus('error');
+      setFbConnectionMessage('กรุณากรอก Page ID และ User Access Token');
       return;
     }
-
-    setIsLoading(true);
-    setError(null);
-    setGeneratedPost('');
-    setActivePostId(null);
-
+    setFbConnectionStatus('verifying');
+    setFbConnectionMessage('กำลังตรวจสอบการเชื่อมต่อ...');
     try {
-      const postText = await generatePost(sheetData, uploadedImage, customPrompt, temperature, maxTokens, shopeeLink);
-      setGeneratedPost(postText);
-      const newLogEntry: LogEntry = {
-        id: Date.now().toString(),
+      const response = await fetch(`https://graph.facebook.com/v20.0/${facebookPageId}?fields=name&access_token=${facebookUserToken}`);
+      const data = await response.json();
+      if (!response.ok) {
+        throw data.error;
+      }
+      setPageName(data.name);
+      setFbConnectionStatus('success');
+      setFbConnectionMessage(`เชื่อมต่อสำเร็จกับเพจ: ${data.name}`);
+    } catch (err: any) {
+      setFbConnectionStatus('error');
+      setFbConnectionMessage(`เชื่อมต่อล้มเหลว: ${translateFacebookError(err)}`);
+    }
+  };
+  
+  const verifyInstagramConnection = async () => {
+    if (fbConnectionStatus !== 'success') {
+      setIgConnectionStatus('error');
+      setIgConnectionMessage('กรุณาเชื่อมต่อ Facebook Page ให้สำเร็จก่อน');
+      return;
+    }
+    setIgConnectionStatus('verifying');
+    setIgConnectionMessage('กำลังดึงข้อมูลบัญชี Instagram...');
+    try {
+        const response = await fetch(`https://graph.facebook.com/v20.0/${facebookPageId}?fields=instagram_business_account{id,username}&access_token=${facebookUserToken}`);
+        const data = await response.json();
+        if (!response.ok) throw data.error;
+        if (!data.instagram_business_account) {
+          throw new Error("ไม่พบบัญชี Instagram Business ที่เชื่อมต่อกับเพจนี้");
+        }
+        setInstagramAccountId(data.instagram_business_account.id);
+        setIgConnectionStatus('success');
+        setIgConnectionMessage(`เชื่อมต่อสำเร็จกับ IG: ${data.instagram_business_account.username}`);
+    } catch (err: any) {
+        setIgConnectionStatus('error');
+        setIgConnectionMessage(`เชื่อมต่อ IG ล้มเหลว: ${err.message || translateFacebookError(err)}`);
+    }
+  };
+
+  const handleGeneratePost = async () => {
+    if (!sheetData || !uploadedImage) {
+      setError("กรุณากรอกข้อมูลสินค้าและอัปโหลดรูปภาพก่อน");
+      return;
+    }
+    setIsLoading(true);
+    clearNotifications();
+    
+    try {
+      const caption = await generatePost(sheetData, uploadedImage, customPrompt, temperature, maxTokens, shopeeLink);
+      setGeneratedPost(caption);
+      
+      const thumbnailUrl = await generateThumbnail(uploadedImage.base64, uploadedImage.mediaType);
+      const newLog: LogEntry = {
+        id: `post_${Date.now()}`,
         timestamp: new Date().toISOString(),
-        content: postText,
-        imageUrl: uploadedImage.base64,
+        content: caption,
+        thumbnailUrl,
         mediaType: uploadedImage.mediaType,
         status: 'Generated',
         pageId: facebookPageId,
       };
-      setLogHistory(prev => [newLogEntry, ...prev]);
-      setActivePostId(newLogEntry.id);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'เกิดข้อผิดพลาดที่ไม่รู้จัก');
+      setLogHistory(prev => [newLog, ...prev]);
+      setActivePostId(newLog.id);
+
+    } catch (err: any) {
+      setError(err.message || "เกิดข้อผิดพลาดในการสร้างโพสต์");
     } finally {
       setIsLoading(false);
     }
-  }, [sheetData, uploadedImage, customPrompt, facebookPageId, temperature, maxTokens, shopeeLink]);
+  };
 
-  const clearGeneratedPost = () => {
-      setGeneratedPost('');
-      setUploadedImage(null);
-      setActivePostId(null);
-      setScheduledTime('');
-      setPostPrivacy('published');
-  }
-
-  const handlePostToFacebook = useCallback(async (postId: string, postContent: string, image: UploadedImage | null, privacy: 'published' | 'unpublished') => {
-    if (!image) {
-      throw new Error("ไม่พบข้อมูลรูปภาพหรือวิดีโอสำหรับโพสต์");
+  const handleGenerateImageFromPrompt = async () => {
+    if (!imageGenerationPrompt) {
+      setError("กรุณาใส่คำสั่งสำหรับสร้างรูปภาพ");
+      return;
     }
-
-    const apiVersion = 'v20.0';
-    const isVideo = image.mediaType === 'video';
-    const endpoint = isVideo
-        ? `https://graph.facebook.com/${apiVersion}/${facebookPageId}/videos`
-        : `https://graph.facebook.com/${apiVersion}/${facebookPageId}/photos`;
-    
-    const formData = new FormData();
-    formData.append('access_token', facebookUserToken);
-
-    if (isVideo) {
-        formData.append('description', postContent);
-    } else {
-        formData.append('caption', postContent);
-    }
-    
-    if (image.file) {
-      // For user-uploaded files, use the original File object for efficiency
-      formData.append('source', image.file);
-    } else {
-      // Fallback for AI-generated images which don't have a File object
-      formData.append('source', dataURLtoBlob(image.base64));
-    }
-
-
-    if (privacy === 'unpublished') {
-      formData.append('published', 'false');
-    }
-
+    setIsGeneratingImage(true);
+    clearNotifications();
     try {
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        body: formData,
+      const { base64, mimeType } = await generateImage(imageGenerationPrompt);
+      setUploadedImage({
+        base64,
+        mimeType,
+        mediaType: 'image'
       });
-
-      const result = await response.json();
-
-      if (!response.ok) {
-        if (result.error) {
-           throw { code: result.error.code, message: result.error.message };
-        }
-        throw new Error('เกิดข้อผิดพลาดที่ไม่รู้จักขณะโพสต์ไปยัง Facebook');
-      }
-
-      setLogHistory(prev =>
-        prev.map(entry =>
-          entry.id === postId ? { ...entry, status: 'Posted', content: postContent } : entry
-        )
-      );
-      
-      return result;
-    } catch (err) {
-      if (err instanceof Error) {
-        console.error("Facebook post error:", err.message);
-      } else {
-        console.error("Facebook post error:", JSON.stringify(err));
-      }
-      throw err;
+    } catch (err: any) {
+      setError(err.message || "เกิดข้อผิดพลาดในการสร้างรูปภาพ");
+    } finally {
+      setIsGeneratingImage(false);
     }
-  }, [facebookPageId, facebookUserToken]);
+  };
 
-
-  const handlePostNow = async () => {
-    if (!activePostId || !uploadedImage) return;
+  const handlePublish = async () => {
+    if (!generatedPost || !uploadedImage || !activePostId) {
+        setError("กรุณาสร้างโพสต์ก่อน");
+        return;
+    }
+    if (fbConnectionStatus !== 'success') {
+        setError("กรุณาเชื่อมต่อกับ Facebook ให้สำเร็จก่อน");
+        return;
+    }
+    if (postToInstagram && igConnectionStatus !== 'success') {
+        setError("กรุณาเชื่อมต่อกับ Instagram ให้สำเร็จก่อน");
+        return;
+    }
 
     setIsPosting(true);
-    setError(null);
-    setPostSuccess(null);
+    clearNotifications();
 
     try {
-        await handlePostToFacebook(activePostId, generatedPost, uploadedImage, postPrivacy);
-        setPostSuccess('โพสต์ของคุณถูกโพสต์ลง Facebook เรียบร้อยแล้ว');
-        setTimeout(() => setPostSuccess(null), 5000);
-        clearGeneratedPost();
+        const pageTokenResponse = await fetch(`https://graph.facebook.com/v20.0/${facebookPageId}?fields=access_token&access_token=${facebookUserToken}`);
+        const pageTokenData = await pageTokenResponse.json();
+        if (!pageTokenResponse.ok) throw { api: 'facebook_page_token', data: pageTokenData.error };
+        const pageAccessToken = pageTokenData.access_token;
+
+        if (postToInstagram && postPrivacy === 'unpublished' && !scheduledTime) {
+            throw { 
+                custom_error: true, 
+                message: 'Instagram ไม่รองรับการโพสต์แบบ "ไม่แสดงบนฟีด" (Unpublished) กรุณาตั้งเวลาโพสต์แทน หรือเอาเครื่องหมายโพสต์ลง Instagram ออก' 
+            };
+        }
+
+        const postEndpoint = uploadedImage.mediaType === 'video'
+            ? `https://graph-video.facebook.com/v20.0/${facebookPageId}/videos`
+            : `https://graph.facebook.com/v20.0/${facebookPageId}/photos`;
+
+        const postFormData = new FormData();
+        postFormData.append('access_token', pageAccessToken);
+        
+        if (uploadedImage.mediaType === 'video') {
+            postFormData.append('description', generatedPost);
+        } else {
+            postFormData.append('message', generatedPost);
+        }
+
+        const blob = dataURLtoBlob(uploadedImage.base64);
+        postFormData.append('source', blob, uploadedImage.file?.name || (uploadedImage.mediaType === 'video' ? 'video.mp4' : 'image.png'));
+
+        const platforms: ('FACEBOOK' | 'INSTAGRAM')[] = ['FACEBOOK'];
+        if (postToInstagram) {
+            platforms.push('INSTAGRAM');
+        }
+        postFormData.append('platforms', JSON.stringify(platforms));
+
+        const isScheduled = !!scheduledTime;
+        if (isScheduled) {
+            const scheduledTimestamp = Math.floor(new Date(scheduledTime).getTime() / 1000);
+            postFormData.append('scheduled_publish_time', String(scheduledTimestamp));
+            postFormData.append('published', 'false');
+        } else {
+             if (postPrivacy === 'unpublished') {
+                postFormData.append('published', 'false');
+                postFormData.append('unpublished_content_type', 'SCHEDULED');
+             } else {
+                postFormData.append('published', 'true');
+             }
+        }
+
+        const postResponse = await fetch(postEndpoint, { method: 'POST', body: postFormData });
+        const postData = await postResponse.json();
+        if (!postResponse.ok) throw { api: 'facebook_publish', data: postData.error };
+
+        const platformText = postToInstagram ? "Facebook และ Instagram" : "Facebook";
+        const successMessage = isScheduled
+            ? `ตั้งเวลาโพสต์ลง ${platformText} สำเร็จแล้ว`
+            : (postPrivacy === 'unpublished' ? `โพสต์แบบไม่แสดงบนฟีดลง ${platformText} สำเร็จ` : `โพสต์ลง ${platformText} สำเร็จแล้ว!`);
+        setPostSuccess(successMessage);
+        
+        setLogHistory(prev => prev.map(log => log.id === activePostId ? {
+            ...log,
+            status: isScheduled ? 'Scheduled' : 'Posted',
+            scheduledTimestamp: isScheduled ? new Date(scheduledTime).toISOString() : undefined,
+            facebookPostId: postData.id,
+            privacy: postPrivacy,
+        } : log));
+        setActivePostId(null);
+        setGeneratedPost('');
+
     } catch (err: any) {
-        const errorMessage = err.code ? translateFacebookError(err) : (err.message || 'เกิดข้อผิดพลาดที่ไม่รู้จัก');
-        setError(errorMessage);
-         setLogHistory(prev =>
-            prev.map(entry =>
-                entry.id === activePostId ? { ...entry, status: 'Failed' } : entry
-            )
-        );
+        console.error("Publishing error:", err);
+        if (err.custom_error) {
+            setError(err.message);
+        } else {
+            const errorMessage = err.api === 'facebook_publish'
+                ? translateFacebookError(err.data)
+                : (err.api === 'facebook_page_token'
+                    ? `ไม่สามารถยืนยัน Page Access Token (Code: ${err.data?.error?.code}): ${err.data?.error?.message}. ตรวจสอบ Page ID และสิทธิ์ของ User Token`
+                    : (err.message || 'เกิดข้อผิดพลาดที่ไม่รู้จัก'));
+            setError(errorMessage);
+            setLogHistory(prev => prev.map(log => log.id === activePostId ? {...log, status: 'Failed'} : log));
+        }
     } finally {
         setIsPosting(false);
     }
   };
-  
-  const handleSchedulePost = () => {
-    if (!scheduledTime || !activePostId || !uploadedImage) return;
 
-    const scheduleDate = new Date(scheduledTime);
-    const now = new Date();
-
-    if (scheduleDate <= now) {
-      setError("กรุณาเลือกเวลาในอนาคต");
+  const handlePublishNow = async (logId: string, facebookPostId: string) => {
+    if (!facebookPageId || !facebookUserToken) {
+      setError("ข้อมูลการเชื่อมต่อ Facebook ไม่ครบถ้วน");
       return;
     }
+    try {
+      const pageTokenResponse = await fetch(`https://graph.facebook.com/v20.0/${facebookPageId}?fields=access_token&access_token=${facebookUserToken}`);
+      const pageTokenData = await pageTokenResponse.json();
+      if (!pageTokenResponse.ok) throw pageTokenData.error;
+      const pageAccessToken = pageTokenData.access_token;
 
-    setIsPosting(true);
-    setError(null);
-
-    const delay = scheduleDate.getTime() - now.getTime();
-    
-    const postContent = generatedPost;
-    const postId = activePostId;
-    const imageToPost = uploadedImage;
-    const privacyToSchedule = postPrivacy;
-
-    setLogHistory(prev =>
-      prev.map(entry =>
-        entry.id === postId
-          ? { ...entry, status: 'Scheduled', scheduledTimestamp: scheduleDate.toISOString(), content: postContent }
-          : entry
-      )
-    );
-    
-    setTimeout(async () => {
-      try {
-        await handlePostToFacebook(postId, postContent, imageToPost, privacyToSchedule);
-      } catch (err: any) {
-        const errorMessage = err.code ? translateFacebookError(err) : 'เกิดข้อผิดพลาดในการโพสต์ตามเวลา';
-        console.error("Scheduled post failed:", errorMessage);
-        setLogHistory(prev =>
-            prev.map(entry =>
-                entry.id === postId ? { ...entry, status: 'Failed' } : entry
-            )
-        );
-      }
-    }, delay);
-
-    setPostSuccess(`โพสต์ของคุณถูกตั้งเวลาแล้ว โปรดอย่าปิดแท็บนี้`);
-    clearGeneratedPost();
-    setIsPosting(false); // Reset isPosting after clearing the form
+      const response = await fetch(`https://graph.facebook.com/v20.0/${facebookPostId}`, {
+          method: 'POST',
+          body: new URLSearchParams({ is_published: 'true', access_token: pageAccessToken })
+      });
+      const data = await response.json();
+      if (!response.ok) throw data.error;
+      
+      setLogHistory(prev => prev.map(log => log.id === logId ? {...log, privacy: 'published'} : log));
+      setPostSuccess("เผยแพร่โพสต์บนฟีดสำเร็จแล้ว!");
+    } catch (err: any) {
+      console.error("Error publishing post:", err);
+      setError(translateFacebookError(err));
+    }
   };
 
-  const isConnected = connectionStatus === 'success';
-  const isGenerationDisabled = !isConnected || !sheetData || !uploadedImage || isLoading;
-  const isPostingDisabled = !generatedPost || isPosting;
+  const isPostButtonDisabled = !generatedPost || !activePostId || isPosting || fbConnectionStatus !== 'success';
+
 
   return (
     <>
-      <InstructionsModal isOpen={isInstructionsOpen} onClose={() => setIsInstructionsOpen(false)} />
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 font-sans p-4 sm:p-6 lg:p-8">
-        <div className="max-w-4xl mx-auto">
-          <header className="text-center mb-8">
-            <h1 className="text-4xl sm:text-5xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-blue-500 to-indigo-600 dark:from-blue-400 dark:to-indigo-500">
-              ระบบสร้างโพสต์ Facebook อัตโนมัติด้วย AI
-            </h1>
-            <p className="mt-2 text-lg text-gray-600 dark:text-gray-300">
-              สร้างและจัดการโพสต์ Facebook ของคุณได้อย่างง่ายดายด้วยพลังของ AI
-            </p>
-          </header>
+      <main className="container mx-auto p-4 sm:p-6 lg:p-8">
+        <header className="text-center mb-8">
+          <h1 className="text-4xl font-bold text-gray-800 dark:text-white">AI Facebook Post Automator</h1>
+          <p className="text-lg text-gray-600 dark:text-gray-300 mt-2">สร้างและโพสต์คอนเทนต์ลง Facebook และ Instagram ด้วยพลังของ AI</p>
+        </header>
 
-          <main className="space-y-6">
-             <div className="flex justify-center">
-              <button 
-                onClick={() => setIsInstructionsOpen(true)}
-                className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-gray-700 rounded-lg hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500 transition"
-              >
-                <InfoIcon />
-                วิธีเชื่อมต่อ Facebook
-              </button>
-            </div>
-
-            {error && (
-              <div className="p-4 bg-red-100 dark:bg-red-900/30 border border-red-400 dark:border-red-600 text-red-700 dark:text-red-300 rounded-lg">
-                <p className="font-bold">เกิดข้อผิดพลาด</p>
-                <p>{error}</p>
-              </div>
-            )}
-            {postSuccess && (
-              <div className="p-4 bg-green-100 dark:bg-green-900/30 border border-green-400 dark:border-green-600 text-green-700 dark:text-green-300 rounded-lg">
-                <p className="font-bold">สำเร็จ!</p>
-                <p>{postSuccess}</p>
-              </div>
-            )}
-            
-            <Card title="ขั้นตอนที่ 1: เชื่อมต่อบัญชี" icon={<FacebookIcon />}>
+        {error && (
+          <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 rounded-md mb-6" role="alert">
+            <p className="font-bold">เกิดข้อผิดพลาด</p>
+            <p>{error}</p>
+          </div>
+        )}
+        {postSuccess && (
+          <div className="bg-green-100 border-l-4 border-green-500 text-green-700 p-4 rounded-md mb-6" role="alert">
+            <p className="font-bold">สำเร็จ</p>
+            <p>{postSuccess}</p>
+          </div>
+        )}
+        
+        <div className="grid grid-cols-1 lg:grid-cols-5 gap-8">
+          <div className="lg:col-span-3 space-y-8">
+            <Card title="1. เชื่อมต่อ Social Media" icon={<FacebookIcon />}>
               <div className="space-y-4">
-                <TextInput
-                  label="Facebook Page ID"
-                  value={facebookPageId}
-                  onChange={(e) => setFacebookPageId(e.target.value)}
-                  placeholder="เช่น 123456789012345"
-                  disabled={isConnected || connectionStatus === 'verifying'}
-                />
-                <TextInput
-                  id="facebookUserToken"
-                  label="Facebook User Access Token"
-                  description={
-                    <a 
-                      href="https://developers.facebook.com/tools/explorer/" 
-                      target="_blank" 
-                      rel="noopener noreferrer" 
-                      className="text-sm text-indigo-600 dark:text-indigo-400 hover:underline font-normal"
-                    >
-                      วิธีสร้าง Access Token
-                    </a>
-                  }
-                  type="password"
-                  value={facebookUserToken}
-                  onChange={(e) => setFacebookUserToken(e.target.value)}
-                  placeholder="วาง Access Token ของคุณที่นี่"
-                  disabled={isConnected || connectionStatus === 'verifying'}
-                />
+                <h3 className="font-semibold text-gray-800 dark:text-gray-200">Facebook Page</h3>
+                <TextInput label="Facebook Page ID" value={facebookPageId} onChange={e => setFacebookPageId(e.target.value)} placeholder="e.g., 123456789012345" />
+                <TextInput label="Facebook User Access Token" type="password" value={facebookUserToken} onChange={e => setFacebookUserToken(e.target.value)} placeholder="วาง Access Token ที่คัดลอกมาที่นี่" />
 
-                {connectionStatus !== 'success' ? (
-                  <Button 
-                    onClick={handleVerifyConnection} 
-                    isLoading={connectionStatus === 'verifying'}
-                    disabled={!facebookPageId || !facebookUserToken || connectionStatus === 'verifying'}
-                  >
-                    {connectionStatus === 'verifying' ? 'กำลังตรวจสอบ...' : 'ตรวจสอบการเชื่อมต่อ'}
-                  </Button>
-                ) : (
-                  <Button 
-                    onClick={handleDisconnect} 
-                    className="bg-red-600 hover:bg-red-700 dark:bg-red-500 dark:hover:bg-red-600"
-                  >
-                    ยกเลิกการเชื่อมต่อ
-                  </Button>
+                <div className="flex items-center">
+                   <Button onClick={verifyFacebookConnection} isLoading={fbConnectionStatus === 'verifying'}>
+                    {fbConnectionStatus === 'success' ? 'เชื่อมต่อแล้ว' : 'ตรวจสอบการเชื่อมต่อ'}
+                   </Button>
+                   <button onClick={() => setIsInstructionsOpen(true)} className="ml-3 text-gray-500 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors flex items-center">
+                    <InfoIcon />
+                    <span className="ml-1 text-sm font-medium">วิธีเชื่อมต่อ</span>
+                  </button>
+                </div>
+                {fbConnectionMessage && (
+                  <p className={`text-sm mt-2 ${fbConnectionStatus === 'error' ? 'text-red-600' : 'text-green-600'}`}>{fbConnectionMessage}</p>
                 )}
-                
-                {connectionMessage && (
-                  <div className={`mt-4 p-3 rounded-md text-sm ${
-                    connectionStatus === 'success' ? 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300' : ''
-                  } ${
-                    connectionStatus === 'error' ? 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-300' : ''
-                  }`}>
-                    {connectionMessage}
-                  </div>
-                )}
+
+                <div className="border-t border-gray-200 dark:border-gray-700 pt-4 mt-4">
+                  <h3 className="font-semibold text-gray-800 dark:text-gray-200 flex items-center"><InstagramIcon /> <span className="ml-2">Instagram Business (ไม่บังคับ)</span></h3>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 mb-3">ต้องเชื่อมต่อ Facebook Page ก่อน และต้องเป็นบัญชี Instagram Business ที่ผูกกับเพจนั้น</p>
+                  <Button onClick={verifyInstagramConnection} isLoading={igConnectionStatus === 'verifying'} disabled={fbConnectionStatus !== 'success'}>
+                    {igConnectionStatus === 'success' ? 'เชื่อมต่อ IG แล้ว' : 'ดึงข้อมูลบัญชี Instagram'}
+                  </Button>
+                   {igConnectionMessage && (
+                    <p className={`text-sm mt-2 ${igConnectionStatus === 'error' ? 'text-red-600' : 'text-green-600'}`}>{igConnectionMessage}</p>
+                  )}
+                </div>
               </div>
             </Card>
 
-            <div className={`space-y-6 transition-opacity duration-500 ${!isConnected ? 'opacity-50 pointer-events-none' : 'opacity-100'}`}>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <Card title="ขั้นตอนที่ 2: เตรียมเนื้อหา" icon={<GoogleSheetsIcon />}>
-                  <div className="space-y-4">
-                    <div className="flex flex-col">
-                      <div className="flex justify-between items-center mb-2">
-                        <label htmlFor="sheet-data" className="font-semibold text-gray-700 dark:text-gray-300">
-                          วางข้อมูลจาก Google Sheet
-                        </label>
-                        <button onClick={handleDownloadExample} className="text-sm text-indigo-600 dark:text-indigo-400 hover:underline">
-                          ดาวน์โหลดตัวอย่าง
-                        </button>
-                      </div>
-                      <textarea
-                        id="sheet-data"
-                        rows={4}
-                        value={sheetData}
-                        onChange={(e) => setSheetData(e.target.value)}
-                        placeholder="ตัวอย่าง:&#10;สินค้า: เสื้อยืด&#10;ราคา: 590 บาท&#10;โปรโมชั่น: ลด 20%"
-                        className="w-full p-2 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition"
-                      />
-                    </div>
-                    <TextInput
-                      label="Shopee Link (ถ้ามี)"
-                      value={shopeeLink}
-                      onChange={(e) => setShopeeLink(e.target.value)}
-                      placeholder="https://shopee.co.th/..."
-                    />
-                    
-                     {!uploadedImage ? (
-                        <div>
-                          <div className="flex border-b border-gray-200 dark:border-gray-700 mb-4">
-                            <button
-                              onClick={() => setImageSourceTab('upload')}
-                              className={`py-2 px-4 text-sm font-medium transition-colors ${imageSourceTab === 'upload' ? 'border-b-2 border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'}`}
-                            >
-                              อัปโหลดสื่อ
-                            </button>
-                            <button
-                              onClick={() => setImageSourceTab('generate')}
-                              className={`py-2 px-4 text-sm font-medium transition-colors ${imageSourceTab === 'generate' ? 'border-b-2 border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'}`}
-                            >
-                              สร้างรูปภาพด้วย AI
-                            </button>
-                          </div>
-                          <div>
-                            {imageSourceTab === 'upload' && (
-                              <ImageUploader key={activePostId} onImageUpload={setUploadedImage} />
-                            )}
-                            {imageSourceTab === 'generate' && (
-                              <div className="space-y-4">
-                                <div>
-                                    <label htmlFor="image-prompt" className="mb-2 font-semibold text-gray-700 dark:text-gray-300 block">คำสั่งสำหรับสร้างรูปภาพ</label>
-                                    <textarea
-                                      id="image-prompt"
-                                      rows={3}
-                                      value={imageGenerationPrompt}
-                                      onChange={(e) => setImageGenerationPrompt(e.target.value)}
-                                      placeholder="เช่น 'แมวอวกาศใส่แว่นกันแดด, สไตล์ภาพวาดสีน้ำ'"
-                                      className="w-full p-2 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition"
-                                    />
-                                </div>
-                                <Button onClick={handleGenerateImage} isLoading={isGeneratingImage} disabled={!imageGenerationPrompt || isGeneratingImage}>
-                                  {isGeneratingImage ? 'กำลังสร้างรูปภาพ...' : 'สร้างรูปภาพ'}
-                                </Button>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="flex flex-col items-center">
-                            <label className="mb-2 font-semibold text-gray-700 dark:text-gray-300 self-start">
-                                สื่อสำหรับโพสต์
-                            </label>
-                            {uploadedImage.mediaType === 'video' ? (
-                                <video src={uploadedImage.base64} controls className="w-full h-auto object-cover rounded-lg mb-4" />
-                            ) : (
-                                <img src={uploadedImage.base64} alt="Preview" className="w-full h-auto object-cover rounded-lg mb-4" />
-                            )}
-                            <Button onClick={() => setUploadedImage(null)} className="w-auto bg-red-600 hover:bg-red-700 dark:bg-red-500 dark:hover:bg-red-600 px-4 py-2 text-sm">
-                                เปลี่ยนสื่อ
-                            </Button>
-                        </div>
-                      )}
-
-                  </div>
-                </Card>
-                <Card title="ขั้นตอนที่ 3: สร้างโพสต์ด้วย AI" icon={<SparklesIcon />}>
+            <Card title="2. ใส่ข้อมูลสินค้า" icon={<GoogleSheetsIcon />}>
                 <div className="space-y-4">
-                    <div className="flex flex-col space-y-2">
-                      <label htmlFor="prompt-template" className="font-semibold text-gray-700 dark:text-gray-300">
-                        คำสั่งสำหรับ AI
-                      </label>
-                      <select
-                        id="prompt-template"
-                        value={promptTemplates.find(t => t.value === customPrompt)?.value ?? ''}
-                        onChange={(e) => setCustomPrompt(e.target.value)}
+                    <label htmlFor="sheet-data" className="mb-2 font-semibold text-gray-700 dark:text-gray-300">ข้อมูลสินค้า (คัดลอกมาจาก Google Sheets)</label>
+                    <textarea
+                        id="sheet-data"
+                        rows={6}
+                        value={sheetData}
+                        onChange={e => setSheetData(e.target.value)}
+                        placeholder={"ตัวอย่าง:\nหัวข้อ,รายละเอียด\nสินค้า,เสื้อยืดคอตตอน 100%\nราคา,590 บาท"}
                         className="w-full p-2 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition"
-                      >
-                        {promptTemplates.map((template) => (
-                          <option key={template.name} value={template.value}>
-                            {template.name}
-                          </option>
-                        ))}
-                      </select>
-                      <textarea
+                    ></textarea>
+                    <button onClick={handleDownloadExample} className="text-sm text-indigo-600 dark:text-indigo-400 hover:underline">ดาวน์โหลดไฟล์ตัวอย่าง (.csv)</button>
+                     <TextInput label="ลิงก์สินค้า (เช่น Shopee, Lazada)" value={shopeeLink} onChange={e => setShopeeLink(e.target.value)} placeholder="https://..." />
+                </div>
+            </Card>
+
+            <Card title="3. เตรียมรูปภาพ" icon={<UploadIcon />}>
+                <div className="flex border-b border-gray-200 dark:border-gray-700 mb-4">
+                  <button onClick={() => setImageSourceTab('upload')} className={`px-4 py-2 text-sm font-medium ${imageSourceTab === 'upload' ? 'border-b-2 border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'}`}>อัปโหลดรูป</button>
+                  <button onClick={() => setImageSourceTab('generate')} className={`px-4 py-2 text-sm font-medium ${imageSourceTab === 'generate' ? 'border-b-2 border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'}`}>สร้างด้วย AI</button>
+                </div>
+                {imageSourceTab === 'upload' ? (
+                  <ImageUploader onImageUpload={setUploadedImage} />
+                ) : (
+                  <div className="space-y-3">
+                    <TextInput label="คำสั่งสำหรับสร้างรูปภาพ (ภาษาอังกฤษ)" value={imageGenerationPrompt} onChange={e => setImageGenerationPrompt(e.target.value)} placeholder="e.g., a photorealistic shot of a cotton t-shirt on a mannequin" />
+                    <Button onClick={handleGenerateImageFromPrompt} isLoading={isGeneratingImage}>สร้างรูปภาพ</Button>
+                  </div>
+                )}
+            </Card>
+            
+            <Card title="4. สร้างแคปชั่นด้วย AI" icon={<SparklesIcon />}>
+              <div className="space-y-4">
+                  <div>
+                    <label htmlFor="prompt-template" className="mb-2 font-semibold text-gray-700 dark:text-gray-300 block">เลือกเทมเพลต (ไม่บังคับ)</label>
+                    <select id="prompt-template" onChange={e => setCustomPrompt(e.target.value)} className="w-full p-2 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md">
+                      {promptTemplates.map(t => <option key={t.name} value={t.value}>{t.name}</option>)}
+                    </select>
+                  </div>
+                   <div>
+                    <label htmlFor="custom-prompt" className="mb-2 font-semibold text-gray-700 dark:text-gray-300 block">คำสั่งเพิ่มเติม (ภาษาไทย)</label>
+                    <textarea
                         id="custom-prompt"
                         rows={3}
                         value={customPrompt}
-                        onChange={(e) => setCustomPrompt(e.target.value)}
-                        placeholder="เลือกเทมเพลต หรือพิมพ์คำสั่งของคุณที่นี่..."
+                        onChange={e => setCustomPrompt(e.target.value)}
+                        placeholder="เช่น: เน้นโปรโมชั่น 1 แถม 1, เขียนให้ดูวัยรุ่นขึ้น, เพิ่มคำถามตอนท้าย"
                         className="w-full p-2 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition"
-                      />
-                    </div>
-                    
-                    <div className="pt-4 border-t border-gray-200 dark:border-gray-700">
-                      <h4 className="font-semibold text-gray-700 dark:text-gray-300 mb-3">ปรับแต่งค่า AI (ตัวเลือก)</h4>
-                      <div className="space-y-4">
-                        <div>
-                          <label htmlFor="temperature" className="flex justify-between items-center text-sm font-medium text-gray-700 dark:text-gray-300">
-                            <span>ความคิดสร้างสรรค์ (Creativity)</span>
-                            <span className="font-mono text-sm text-indigo-600 dark:text-indigo-400">{temperature.toFixed(1)}</span>
-                          </label>
-                          <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 mt-1">
-                            <span>ตรงไปตรงมา</span>
-                            <input
-                              id="temperature"
-                              type="range"
-                              min="0"
-                              max="1"
-                              step="0.1"
-                              value={temperature}
-                              onChange={(e) => setTemperature(parseFloat(e.target.value))}
-                              className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-600"
-                              aria-label="Adjust creativity"
-                            />
-                            <span>สร้างสรรค์</span>
-                          </div>
-                        </div>
-
-                        <div>
-                          <label htmlFor="max-tokens" className="flex justify-between items-center text-sm font-medium text-gray-700 dark:text-gray-300">
-                            <span>ความยาวของเนื้อหา</span>
-                            <span className="font-mono text-sm text-indigo-600 dark:text-indigo-400">{maxTokens} tokens</span>
-                          </label>
-                          <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 mt-1">
-                            <span>สั้น</span>
-                            <input
-                              id="max-tokens"
-                              type="range"
-                              min="100"
-                              max="800"
-                              step="50"
-                              value={maxTokens}
-                              onChange={(e) => setMaxTokens(parseInt(e.target.value, 10))}
-                              className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-600"
-                              aria-label="Adjust content length"
-                            />
-                            <span>ยาว</span>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    <Button onClick={handleGeneratePost} disabled={isGenerationDisabled} isLoading={isLoading}>
-                      {isLoading ? 'กำลังสร้าง...' : 'สร้างโพสต์'}
-                    </Button>
-                </div>
-              </Card>
-            </div>
-            
-              {generatedPost && uploadedImage && activePostId && (
-                <Card title="ขั้นตอนที่ 4: ตัวอย่างและโพสต์">
-                  <div className="space-y-4">
-                    <PostPreview
-                      pageName={pageName}
-                      pageId={facebookPageId}
-                      content={generatedPost}
-                      imageUrl={uploadedImage.base64}
-                      mediaType={uploadedImage.mediaType}
-                    />
-                    <textarea
-                      value={generatedPost}
-                      onChange={(e) => setGeneratedPost(e.target.value)}
-                      rows={5}
-                      className="w-full p-2 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition mt-2"
-                      aria-label="แก้ไขโพสต์ที่สร้างขึ้น"
-                    />
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-end">
-                      <div>
-                        <label htmlFor="schedule-time" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">ตั้งเวลาโพสต์</label>
-                        <input
-                          type="datetime-local"
-                          id="schedule-time"
-                          value={scheduledTime}
-                          onChange={(e) => setScheduledTime(e.target.value)}
-                          className="w-full p-2 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-indigo-500 transition"
-                        />
-                        <Button onClick={handleSchedulePost} disabled={!scheduledTime || isPosting} isLoading={isPosting && !!scheduledTime} className="mt-2 bg-purple-600 hover:bg-purple-700 dark:bg-purple-500 dark:hover:bg-purple-600">
-                          {isPosting && !!scheduledTime ? 'กำลังตั้งเวลา...' : 'ยืนยันการตั้งเวลา'}
-                        </Button>
-                      </div>
-                      <div className="space-y-2">
-                        <label htmlFor="post-privacy" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">การแสดงผล</label>
-                        <select
-                          id="post-privacy"
-                          value={postPrivacy}
-                          onChange={(e) => setPostPrivacy(e.target.value as 'published' | 'unpublished')}
-                          className="w-full p-2 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-indigo-500 transition"
-                        >
-                          <option value="published">โพสต์สาธารณะ (แสดงบนหน้าฟีด)</option>
-                          <option value="unpublished">โพสต์ที่ไม่เผยแพร่ (สำหรับโฆษณา)</option>
-                        </select>
-                        <Button onClick={handlePostNow} disabled={isPostingDisabled} isLoading={isPosting && !scheduledTime} className="bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 h-[42px] self-end">
-                          {isPosting && !scheduledTime ? 'กำลังโพสต์...' : 'โพสต์ทันที'}
-                        </Button>
-                      </div>
-                    </div>
-                    <p className="text-xs text-center text-amber-600 dark:text-amber-400 mt-2">
-                        <strong>ข้อสำคัญ:</strong> การตั้งเวลาโพสต์จะทำงานบนเบราว์เซอร์เท่านั้น กรุณาอย่าปิดแท็บนี้จนกว่าจะถึงเวลาโพสต์
-                      </p>
+                    ></textarea>
                   </div>
-                </Card>
-              )}
+                  <div className="grid grid-cols-2 gap-4">
+                     <div>
+                        <label htmlFor="temperature" className="text-sm font-medium text-gray-700 dark:text-gray-300">ความสร้างสรรค์: {temperature}</label>
+                        <input type="range" id="temperature" min="0" max="1" step="0.1" value={temperature} onChange={e => setTemperature(parseFloat(e.target.value))} className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700" />
+                      </div>
+                      <div>
+                        <label htmlFor="max-tokens" className="text-sm font-medium text-gray-700 dark:text-gray-300">ความยาวสูงสุด: {maxTokens} tokens</label>
+                        <input type="range" id="max-tokens" min="100" max="1024" step="8" value={maxTokens} onChange={e => setMaxTokens(parseInt(e.target.value, 10))} className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700" />
+                      </div>
+                  </div>
+                  <Button onClick={handleGeneratePost} isLoading={isLoading}>
+                    {isLoading ? 'กำลังสร้างโพสต์...' : 'สร้างโพสต์ด้วย AI'}
+                  </Button>
+              </div>
+            </Card>
 
-              <LogHistory logs={logHistory} />
-            </div>
-          </main>
+          </div>
+          
+          <div className="lg:col-span-2 space-y-8">
+            <Card title="5. ตรวจสอบและโพสต์">
+              <div className="space-y-4">
+                <PostPreview 
+                  pageName={pageName || 'ชื่อเพจของคุณ'}
+                  pageId={facebookPageId}
+                  content={generatedPost || "เนื้อหาที่ AI สร้างจะแสดงที่นี่..."}
+                  imageUrl={uploadedImage?.base64 || ''}
+                  mediaType={uploadedImage?.mediaType || 'image'}
+                  onPageNameChange={setPageName}
+                />
+                {fbConnectionStatus === 'success' && (
+                  <p className="text-xs text-center text-gray-500 dark:text-gray-400 !mt-2">
+                    คุณสามารถแก้ไขชื่อเพจในพรีวิวได้โดยตรง (สำหรับการแสดงผลเท่านั้น)
+                  </p>
+                )}
+                 <div>
+                    <label htmlFor="post-content" className="font-semibold text-gray-700 dark:text-gray-300">แก้ไขแคปชั่น:</label>
+                    <textarea
+                        id="post-content"
+                        rows={8}
+                        value={generatedPost}
+                        onChange={e => setGeneratedPost(e.target.value)}
+                        className="w-full p-2 mt-2 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md"
+                    />
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                        <label htmlFor="schedule-time" className="font-semibold text-gray-700 dark:text-gray-300">ตั้งเวลาโพสต์ (ไม่บังคับ)</label>
+                        <input type="datetime-local" id="schedule-time" value={scheduledTime} onChange={e => setScheduledTime(e.target.value)} className="w-full mt-2 p-2 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md" />
+                    </div>
+                    <div>
+                        <label htmlFor="privacy" className="font-semibold text-gray-700 dark:text-gray-300">การแสดงผล</label>
+                         <select id="privacy" value={postPrivacy} onChange={e => setPostPrivacy(e.target.value as 'published' | 'unpublished')} className="w-full mt-2 p-2 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md" disabled={!!scheduledTime}>
+                            <option value="published">แสดงบนฟีด (Published)</option>
+                            <option value="unpublished">ไม่แสดงบนฟีด (Unpublished)</option>
+                        </select>
+                        {!!scheduledTime && <p className="text-xs text-amber-600 mt-1">โพสต์ที่ตั้งเวลาจะถูกตั้งเป็น Unpublished โดยอัตโนมัติ</p>}
+                    </div>
+                </div>
+                 <Checkbox 
+                    label="โพสต์ลง Instagram พร้อมกัน"
+                    checked={postToInstagram}
+                    onChange={(e) => setPostToInstagram(e.target.checked)}
+                    disabled={igConnectionStatus !== 'success'}
+                 />
+                 <Button onClick={handlePublish} isLoading={isPosting} disabled={isPostButtonDisabled}>
+                   {isPosting ? 'กำลังโพสต์...' : (scheduledTime ? 'ตั้งเวลาโพสต์' : 'โพสต์เลย')}
+                  </Button>
+              </div>
+            </Card>
+
+            <LogHistory logs={logHistory} onPublish={handlePublishNow} />
+          </div>
         </div>
-      </div>
+      </main>
+      <InstructionsModal isOpen={isInstructionsOpen} onClose={() => setIsInstructionsOpen(false)} />
     </>
   );
 };
-
-export default App;

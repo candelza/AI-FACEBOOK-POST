@@ -5,6 +5,7 @@ import type { LogEntry } from '../types';
 
 interface LogHistoryProps {
   logs: LogEntry[];
+  onPublish: (logId: string, facebookPostId: string) => Promise<void>;
 }
 
 const Countdown: React.FC<{ scheduledTimestamp: string }> = ({ scheduledTimestamp }) => {
@@ -65,7 +66,15 @@ const StatusBadge: React.FC<{ status: 'Generated' | 'Posted' | 'Scheduled' | 'Fa
 };
 
 
-export const LogHistory: React.FC<LogHistoryProps> = ({ logs }) => {
+export const LogHistory: React.FC<LogHistoryProps> = ({ logs, onPublish }) => {
+  const [publishingId, setPublishingId] = useState<string | null>(null);
+
+  const handlePublishClick = async (logId: string, facebookPostId: string) => {
+    setPublishingId(logId);
+    await onPublish(logId, facebookPostId);
+    setPublishingId(null);
+  }
+
   return (
     <Card title="ประวัติการสร้างโพสต์" icon={<HistoryIcon />}>
       {logs.length === 0 ? (
@@ -75,9 +84,9 @@ export const LogHistory: React.FC<LogHistoryProps> = ({ logs }) => {
           {logs.map((log) => (
             <div key={log.id} className="flex items-start p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
               {log.mediaType === 'video' ? (
-                <video src={log.imageUrl} muted className="w-16 h-16 object-cover rounded-md mr-4" />
+                <video src={log.thumbnailUrl} muted className="w-16 h-16 object-cover rounded-md mr-4" />
               ) : (
-                <img src={log.imageUrl} alt="Post thumbnail" className="w-16 h-16 object-cover rounded-md mr-4" />
+                <img src={log.thumbnailUrl} alt="Post thumbnail" className="w-16 h-16 object-cover rounded-md mr-4" />
               )}
               <div className="flex-1">
                 <div className="flex justify-between items-center mb-1">
@@ -90,7 +99,18 @@ export const LogHistory: React.FC<LogHistoryProps> = ({ logs }) => {
                   </p>
                 </div>
                 <p className="text-sm text-gray-700 dark:text-gray-300 line-clamp-3 whitespace-pre-wrap">{log.content}</p>
-                 <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Page ID: {log.pageId}</p>
+                <div className="flex justify-between items-center mt-1">
+                    <p className="text-xs text-gray-500 dark:text-gray-400">Page ID: {log.pageId}</p>
+                    {log.status === 'Posted' && log.privacy === 'unpublished' && log.facebookPostId && (
+                        <button 
+                            onClick={() => handlePublishClick(log.id, log.facebookPostId!)}
+                            disabled={publishingId === log.id}
+                            className="text-xs px-2 py-1 bg-green-500 text-white rounded hover:bg-green-600 transition-colors disabled:bg-gray-400 disabled:cursor-wait"
+                        >
+                            {publishingId === log.id ? 'กำลังเผยแพร่...' : 'แสดงบนฟีด'}
+                        </button>
+                    )}
+                 </div>
               </div>
             </div>
           ))}
