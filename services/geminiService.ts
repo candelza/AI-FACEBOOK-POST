@@ -1,5 +1,4 @@
 
-
 import { GoogleGenAI } from "@google/genai";
 import type { UploadedImage } from '../types';
 
@@ -149,4 +148,83 @@ export async function generateImage(prompt: string): Promise<{ base64: string, m
    }
    throw new Error("ไม่สามารถสร้างรูปภาพได้ โมเดล AI อาจไม่พร้อมใช้งานหรือเกิดข้อผิดพลาด");
   }
+}
+
+const blobToBase64 = (blob: Blob): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(reader.result as string);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+};
+
+export async function generateVideo(
+    prompt: string,
+    aspectRatio: '16:9' | '9:16',
+    onProgress: (message: string) => void
+): Promise<{ base64: string, mimeType: string }> {
+    if (!process.env.API_KEY) {
+        throw new Error("Google AI API Key is not configured in the environment.");
+    }
+    
+    try {
+        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+        
+        onProgress('กำลังส่งคำขอสร้างวิดีโอ...');
+
+        let operation = await ai.models.generateVideos({
+            model: 'veo-2.0-generate-001',
+            prompt: prompt,
+            config: {
+                numberOfVideos: 1,
+                aspectRatio: aspectRatio,
+            }
+        });
+
+        onProgress('โมเดล AI กำลังสร้างวิดีโอ... ขั้นตอนนี้อาจใช้เวลาหลายนาที กรุณารอสักครู่');
+        
+        while (!operation.done) {
+            await new Promise(resolve => setTimeout(resolve, 10000)); // Poll every 10 seconds
+            operation = await ai.operations.getVideosOperation({ operation: operation });
+        }
+
+        if (!operation.response?.generatedVideos?.[0]?.video?.uri) {
+            console.error("Video generation operation completed but no video URI found.", operation);
+            throw new Error("การสร้างวิดีโอล้มเหลว: ไม่พบไฟล์วิดีโอในผลลัพธ์จาก AI");
+        }
+
+        onProgress('สร้างวิดีโอสำเร็จ! กำลังดาวน์โหลดไฟล์...');
+
+        const downloadLink = operation.response.generatedVideos[0].video.uri;
+        const videoResponse = await fetch(`${downloadLink}&key=${process.env.API_KEY}`);
+
+        if (!videoResponse.ok) {
+            throw new Error(`ไม่สามารถดาวน์โหลดไฟล์วิดีโอได้ (สถานะ: ${videoResponse.status})`);
+        }
+        
+        const videoBlob = await videoResponse.blob();
+        const base64Video = await blobToBase64(videoBlob);
+
+        onProgress('ดาวน์โหลดวิดีโอสำเร็จ!');
+
+        return {
+            base64: base64Video,
+            mimeType: 'video/mp4'
+        };
+
+    } catch (error: any) {
+        console.error("Error generating video with Veo API:", error);
+        if (error?.message?.includes('API key not valid')) {
+            throw new Error('Google AI API Key ที่ตั้งค่าไว้ในระบบไม่ถูกต้อง');
+        }
+        if (error?.error?.message) {
+            const apiError = error.error;
+            throw new Error(`เกิดข้อผิดพลาดจาก AI (Code ${apiError.code}): ${apiError.message}`);
+        }
+        if (error instanceof Error) {
+            throw error;
+        }
+        throw new Error("ไม่สามารถสร้างวิดีโอได้ โมเดล AI อาจไม่พร้อมใช้งานหรือเกิดข้อผิดพลาด");
+    }
 }

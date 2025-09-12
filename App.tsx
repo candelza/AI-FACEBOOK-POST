@@ -15,7 +15,7 @@ import { InfoIcon } from './components/icons/InfoIcon';
 import { UploadIcon } from './components/icons/UploadIcon';
 import { Checkbox } from './components/Checkbox';
 import type { UploadedImage, LogEntry } from './types';
-import { generatePost, generateImage } from './services/geminiService';
+import { generatePost, generateImage, generateVideo } from './services/geminiService';
 
 const promptTemplates = [
   { name: '— เลือกเทมเพลต หรือ พิมพ์ด้านล่าง —', value: '' },
@@ -199,10 +199,14 @@ export const App: React.FC = () => {
   const [igConnectionMessage, setIgConnectionMessage] = useState<string>('');
   const [postToInstagram, setPostToInstagram] = useState<boolean>(false);
 
-  // Image Generation State
-  const [imageSourceTab, setImageSourceTab] = useState<'upload' | 'generate'>('upload');
+  // Media Generation State
+  const [imageSourceTab, setImageSourceTab] = useState<'upload' | 'generateImage' | 'generateVideo'>('upload');
   const [imageGenerationPrompt, setImageGenerationPrompt] = useState<string>('');
   const [isGeneratingImage, setIsGeneratingImage] = useState<boolean>(false);
+  const [videoGenerationPrompt, setVideoGenerationPrompt] = useState<string>('');
+  const [videoAspectRatio, setVideoAspectRatio] = useState<'16:9' | '9:16'>('16:9');
+  const [isGeneratingVideo, setIsGeneratingVideo] = useState<boolean>(false);
+  const [videoGenerationStatusMessage, setVideoGenerationStatusMessage] = useState<string | null>(null);
 
 
   useEffect(() => {
@@ -345,6 +349,7 @@ export const App: React.FC = () => {
     }
     setIsGeneratingImage(true);
     clearNotifications();
+    setUploadedImage(null);
     try {
       const { base64, mimeType } = await generateImage(imageGenerationPrompt);
       setUploadedImage({
@@ -356,6 +361,33 @@ export const App: React.FC = () => {
       setError(err.message || "เกิดข้อผิดพลาดในการสร้างรูปภาพ");
     } finally {
       setIsGeneratingImage(false);
+    }
+  };
+
+  const handleGenerateVideo = async () => {
+    if (!videoGenerationPrompt) {
+        setError("กรุณาใส่คำสั่งสำหรับสร้างวิดีโอ");
+        return;
+    }
+    setIsGeneratingVideo(true);
+    clearNotifications();
+    setUploadedImage(null);
+    try {
+        const { base64, mimeType } = await generateVideo(
+            videoGenerationPrompt,
+            videoAspectRatio,
+            (message: string) => setVideoGenerationStatusMessage(message)
+        );
+        setUploadedImage({
+            base64,
+            mimeType,
+            mediaType: 'video'
+        });
+    } catch (err: any) {
+        setError(err.message || "เกิดข้อผิดพลาดในการสร้างวิดีโอ");
+    } finally {
+        setIsGeneratingVideo(false);
+        setVideoGenerationStatusMessage(null);
     }
   };
 
@@ -609,17 +641,55 @@ const handlePublish = async () => {
                 </div>
             </Card>
 
-            <Card title="3. เตรียมรูปภาพ" icon={<UploadIcon />}>
+            <Card title="3. เตรียมสื่อ (รูปภาพ/วิดีโอ)" icon={<UploadIcon />}>
                 <div className="flex border-b border-gray-200 dark:border-gray-700 mb-4">
-                  <button onClick={() => setImageSourceTab('upload')} className={`px-4 py-2 text-sm font-medium ${imageSourceTab === 'upload' ? 'border-b-2 border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'}`}>อัปโหลดรูป</button>
-                  <button onClick={() => setImageSourceTab('generate')} className={`px-4 py-2 text-sm font-medium ${imageSourceTab === 'generate' ? 'border-b-2 border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'}`}>สร้างด้วย AI</button>
+                  <button onClick={() => setImageSourceTab('upload')} className={`px-4 py-2 text-sm font-medium ${imageSourceTab === 'upload' ? 'border-b-2 border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'}`}>อัปโหลด</button>
+                  <button onClick={() => setImageSourceTab('generateImage')} className={`px-4 py-2 text-sm font-medium ${imageSourceTab === 'generateImage' ? 'border-b-2 border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'}`}>สร้างรูปด้วย AI</button>
+                  <button onClick={() => setImageSourceTab('generateVideo')} className={`px-4 py-2 text-sm font-medium ${imageSourceTab === 'generateVideo' ? 'border-b-2 border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'}`}>สร้างวิดีโอด้วย AI</button>
                 </div>
                 {imageSourceTab === 'upload' ? (
                   <ImageUploader onImageUpload={setUploadedImage} />
-                ) : (
+                ) : imageSourceTab === 'generateImage' ? (
                   <div className="space-y-3">
                     <TextInput label="คำสั่งสำหรับสร้างรูปภาพ (ภาษาอังกฤษ)" value={imageGenerationPrompt} onChange={e => setImageGenerationPrompt(e.target.value)} placeholder="e.g., a photorealistic shot of a cotton t-shirt on a mannequin" />
                     <Button onClick={handleGenerateImageFromPrompt} isLoading={isGeneratingImage}>สร้างรูปภาพ</Button>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    <TextInput label="คำสั่งสำหรับสร้างวิดีโอ (ภาษาอังกฤษ)" value={videoGenerationPrompt} onChange={e => setVideoGenerationPrompt(e.target.value)} placeholder="e.g., a time-lapse of a flower blooming" />
+                    <div>
+                      <label className="mb-2 font-semibold text-gray-700 dark:text-gray-300 block">สัดส่วนภาพ (Aspect Ratio)</label>
+                      <div className="flex space-x-4">
+                        <label className="flex items-center space-x-2 cursor-pointer">
+                          <input 
+                            type="radio" 
+                            name="aspectRatio" 
+                            value="16:9" 
+                            checked={videoAspectRatio === '16:9'} 
+                            onChange={() => setVideoAspectRatio('16:9')}
+                            className="form-radio h-4 w-4 text-indigo-600 dark:text-indigo-500 border-gray-300 dark:border-gray-600 focus:ring-indigo-500"
+                          />
+                          <span className="text-sm text-gray-700 dark:text-gray-300">16:9 (แนวนอน)</span>
+                        </label>
+                        <label className="flex items-center space-x-2 cursor-pointer">
+                          <input 
+                            type="radio" 
+                            name="aspectRatio" 
+                            value="9:16" 
+                            checked={videoAspectRatio === '9:16'} 
+                            onChange={() => setVideoAspectRatio('9:16')}
+                            className="form-radio h-4 w-4 text-indigo-600 dark:text-indigo-500 border-gray-300 dark:border-gray-600 focus:ring-indigo-500"
+                          />
+                          <span className="text-sm text-gray-700 dark:text-gray-300">9:16 (แนวตั้ง)</span>
+                        </label>
+                      </div>
+                    </div>
+                    <Button onClick={handleGenerateVideo} isLoading={isGeneratingVideo}>สร้างวิดีโอ</Button>
+                    {isGeneratingVideo && videoGenerationStatusMessage && (
+                        <div className="text-center p-3 bg-indigo-50 dark:bg-indigo-900/30 rounded-lg">
+                            <p className="text-sm font-medium text-indigo-700 dark:text-indigo-300">{videoGenerationStatusMessage}</p>
+                        </div>
+                    )}
                   </div>
                 )}
             </Card>
