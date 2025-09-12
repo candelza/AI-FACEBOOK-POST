@@ -1,5 +1,80 @@
+
 import { GoogleGenAI } from "@google/genai";
 import type { UploadedImage } from '../types';
+
+// A single, module-level client instance.
+// It will be initialized when a valid API key is verified.
+let ai: GoogleGenAI | null = null;
+
+/**
+ * Translates a generic error from the Google AI SDK into a user-friendly
+ * Thai message.
+ * @param error The error object caught from the SDK.
+ * @returns A localized, readable error string.
+ */
+const translateGeminiError = (error: any): string => {
+    if (error?.message?.includes('API key not valid')) {
+        return 'API Key ไม่ถูกต้อง กรุณาตรวจสอบอีกครั้ง';
+    }
+    // Updated check for the new error structure
+    if (error?.error?.message || error?.message) {
+        const apiError = error.error || error;
+        const message = apiError.message || '';
+        const status = apiError.status || '';
+        const code = apiError.code || 0;
+        
+        if (status === 'RESOURCE_EXHAUSTED' || code === 429) {
+            return `ใช้งานเกินโควต้าที่กำหนดแล้ว กรุณาลองใหม่ในภายหลัง`;
+        }
+        if (status === 'PERMISSION_DENIED') {
+            return 'API Key ไม่มีสิทธิ์เข้าถึงโมเดลที่ร้องขอ';
+        }
+        if (status === 'INTERNAL' || code === 500) {
+             return 'เกิดข้อผิดพลาดภายในเซิร์ฟเวอร์ของ Google AI กรุณาลองใหม่อีกครั้งในภายหลัง';
+        }
+        return `เกิดข้อผิดพลาดจาก Google AI: ${message}`;
+    }
+    if (error instanceof Error) {
+        if (error.message.toLowerCase().includes('fetch')) {
+             return 'เกิดข้อผิดพลาดเกี่ยวกับเครือข่าย ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ของ Google AI ได้';
+        }
+        return `เกิดข้อผิดพลาดที่ไม่คาดคิด: ${error.message}`;
+    }
+    return 'เกิดข้อผิดพลาดที่ไม่รู้จักขณะตรวจสอบ API Key';
+};
+
+/**
+ * Verifies a Google AI API key by making a lightweight test call.
+ * If successful, it initializes the shared AI client for subsequent calls.
+ * @param apiKey The user-provided API key.
+ * @returns An object containing the success status and a user-friendly message.
+ */
+export async function verifyApiKey(apiKey: string): Promise<{ success: boolean; message: string; }> {
+    if (!apiKey) {
+        return { success: false, message: 'กรุณากรอก API Key' };
+    }
+    try {
+        // Use a temporary client for verification to not override a potentially valid existing one.
+        const tempAi = new GoogleGenAI({ apiKey });
+        
+        // Make a lightweight, non-streaming call to check validity.
+        // Removed the config with maxOutputTokens which was causing issues.
+        await tempAi.models.generateContent({
+          model: 'gemini-2.5-flash',
+          contents: 'ping', // A simple, harmless prompt.
+        });
+        
+        // If verification is successful, set the module-level client.
+        ai = tempAi;
+        return { success: true, message: 'เชื่อมต่อสำเร็จ! API Key ถูกต้องและพร้อมใช้งาน' };
+
+    } catch (error) {
+        console.error("API Key validation failed:", error);
+        ai = null; // Ensure client is null on any failure.
+        return { success: false, message: `เชื่อมต่อล้มเหลว: ${translateGeminiError(error)}` };
+    }
+}
+
 
 export async function generatePost(
   sheetData: string,
@@ -10,16 +85,14 @@ export async function generatePost(
   maxTokens: number
 ): Promise<string> {
   
-  if (!process.env.API_KEY) {
-    throw new Error("Google AI API Key is not configured in the environment.");
+  if (!ai) {
+    throw new Error("กรุณาเชื่อมต่อและตรวจสอบ Google AI API Key ของคุณก่อน");
   }
   if (media.length === 0) {
       throw new Error("Cannot generate post without media.");
   }
 
   try {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-    
     const postTypeInstruction = {
       image: "The user has provided a single image.",
       video: "The user has provided a single video.",
@@ -80,30 +153,16 @@ export async function generatePost(
 
   } catch (error: any) {
     console.error("Error generating post with Gemini API:", error);
-    if (error?.message?.includes('API key not valid')) {
-      throw new Error('Google AI API Key ที่ตั้งค่าไว้ในระบบไม่ถูกต้อง');
-    }
-    
-    // Handle structured API errors from Google AI
-    if (error?.error?.message) {
-      const apiError = error.error;
-      if (apiError.status === 'RESOURCE_EXHAUSTED' || apiError.code === 429) {
-          throw new Error(`สร้างโพสต์ไม่สำเร็จ: คุณใช้งานเกินโควต้าที่กำหนดแล้ว กรุณาลองใหม่ในวันถัดไป`);
-      }
-      throw new Error(`เกิดข้อผิดพลาดจาก AI (Code ${apiError.code}): ${apiError.message}`);
-    }
-
     if (error instanceof Error) {
-      // Re-throw custom error messages from the try block
       throw error;
     }
-    throw new Error("ไม่สามารถสร้างโพสต์ได้ โมเดล AI อาจไม่พร้อมใช้งานหรือเกิดข้อผิดพลาด");
+    throw new Error(`ไม่สามารถสร้างโพสต์ได้: ${translateGeminiError(error)}`);
   }
 }
 
 export async function generateImage(prompt: string): Promise<{ base64: string, mimeType: string }> {
-  if (!process.env.API_KEY) {
-    throw new Error("Google AI API Key is not configured in the environment.");
+  if (!ai) {
+    throw new Error("กรุณาเชื่อมต่อและตรวจสอบ Google AI API Key ของคุณก่อน");
   }
 
   try {
@@ -114,7 +173,6 @@ export async function generateImage(prompt: string): Promise<{ base64: string, m
       Avoid: text, logos, watermarks, blurry backgrounds, unrealistic shadows.
     `;
     
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const response = await ai.models.generateImages({
         model: 'imagen-4.0-generate-001',
         prompt: enhancedPrompt,
@@ -139,24 +197,10 @@ export async function generateImage(prompt: string): Promise<{ base64: string, m
 
   } catch (error: any) {
     console.error("Error generating image with Imagen API:", error);
-    if (error?.message?.includes('API key not valid')) {
-     throw new Error('Google AI API Key ที่ตั้งค่าไว้ในระบบไม่ถูกต้อง');
-   }
-   
-   // Handle structured API errors from Google AI
-   if (error?.error?.message) {
-     const apiError = error.error;
-     if (apiError.status === 'RESOURCE_EXHAUSTED' || apiError.code === 429) {
-         throw new Error(`สร้างรูปภาพไม่สำเร็จ: คุณใช้งานเกินโควต้าที่กำหนดแล้ว กรุณาลองใหม่ในวันถัดไป`);
-     }
-     throw new Error(`เกิดข้อผิดพลาดจาก AI (Code ${apiError.code}): ${apiError.message}`);
-   }
-
-   if (error instanceof Error) {
-      // Re-throw custom error messages from the try block
-     throw error;
-   }
-   throw new Error("ไม่สามารถสร้างรูปภาพได้ โมเดล AI อาจไม่พร้อมใช้งานหรือเกิดข้อผิดพลาด");
+    if (error instanceof Error) {
+      throw error;
+    }
+    throw new Error(`ไม่สามารถสร้างรูปภาพได้: ${translateGeminiError(error)}`);
   }
 }
 
@@ -173,15 +217,14 @@ export async function generateVideo(
     prompt: string,
     aspectRatio: '16:9' | '9:16',
     onProgress: (message: string) => void,
+    apiKeyForFetch: string, // Keep apiKey for fetch since the service client can't be used for this
     image?: UploadedImage | null
 ): Promise<{ base64: string, mimeType: string }> {
-    if (!process.env.API_KEY) {
-        throw new Error("Google AI API Key is not configured in the environment.");
+    if (!ai) {
+      throw new Error("กรุณาเชื่อมต่อและตรวจสอบ Google AI API Key ของคุณก่อน");
     }
     
     try {
-        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-        
         onProgress('กำลังส่งคำขอสร้างวิดีโอ...');
         
         const generateVideosRequest: any = {
@@ -217,7 +260,7 @@ export async function generateVideo(
         onProgress('สร้างวิดีโอสำเร็จ! กำลังดาวน์โหลดไฟล์...');
 
         const downloadLink = operation.response.generatedVideos[0].video.uri;
-        const videoResponse = await fetch(`${downloadLink}&key=${process.env.API_KEY}`);
+        const videoResponse = await fetch(`${downloadLink}&key=${apiKeyForFetch}`);
 
         if (!videoResponse.ok) {
             throw new Error(`ไม่สามารถดาวน์โหลดไฟล์วิดีโอได้ (สถานะ: ${videoResponse.status})`);
@@ -235,16 +278,9 @@ export async function generateVideo(
 
     } catch (error: any) {
         console.error("Error generating video with Veo API:", error);
-        if (error?.message?.includes('API key not valid')) {
-            throw new Error('Google AI API Key ที่ตั้งค่าไว้ในระบบไม่ถูกต้อง');
-        }
-        if (error?.error?.message) {
-            const apiError = error.error;
-            throw new Error(`เกิดข้อผิดพลาดจาก AI (Code ${apiError.code}): ${apiError.message}`);
-        }
         if (error instanceof Error) {
             throw error;
         }
-        throw new Error("ไม่สามารถสร้างวิดีโอได้ โมเดล AI อาจไม่พร้อมใช้งานหรือเกิดข้อผิดพลาด");
+        throw new Error(`ไม่สามารถสร้างวิดีโอได้: ${translateGeminiError(error)}`);
     }
 }

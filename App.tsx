@@ -1,4 +1,5 @@
 
+
 import React, { useState, useCallback, useEffect } from 'react';
 import { Card } from './components/Card';
 import { Button } from './components/Button';
@@ -14,8 +15,10 @@ import { InstructionsModal } from './components/InstructionsModal';
 import { InfoIcon } from './components/icons/InfoIcon';
 import { UploadIcon } from './components/icons/UploadIcon';
 import { Checkbox } from './components/Checkbox';
+import { ApiKeyModal } from './components/ApiKeyModal';
+import { KeyIcon } from './components/icons/KeyIcon';
 import type { UploadedImage, LogEntry } from './types';
-import { generatePost, generateImage, generateVideo } from './services/geminiService';
+import { generatePost, generateImage, generateVideo, verifyApiKey } from './services/geminiService';
 
 const promptTemplates = [
   { name: '— เลือกเทมเพลต หรือ พิมพ์ด้านล่าง —', value: '' },
@@ -166,6 +169,12 @@ const generateThumbnail = (base64: string, mediaType: 'image' | 'video'): Promis
 
 
 export const App: React.FC = () => {
+  // Google API Key State
+  const [googleApiKey, setGoogleApiKey] = useState<string>('');
+  const [googleApiStatus, setGoogleApiStatus] = useState<'idle' | 'verifying' | 'success' | 'error'>('idle');
+  const [googleApiMessage, setGoogleApiMessage] = useState<string>('');
+  const [isApiKeyModalOpen, setIsApiKeyModalOpen] = useState<boolean>(false);
+  
   const [facebookPageId, setFacebookPageId] = useState<string>('');
   const [facebookUserToken, setFacebookUserToken] = useState<string>('');
   const [instagramAccountId, setInstagramAccountId] = useState<string>('');
@@ -223,6 +232,12 @@ export const App: React.FC = () => {
       if (savedHistory) {
         setLogHistory(JSON.parse(savedHistory));
       }
+      const savedApiKey = localStorage.getItem('googleApiKey');
+      if (savedApiKey) {
+        setGoogleApiKey(savedApiKey);
+        setGoogleApiStatus('idle');
+        setGoogleApiMessage('API Key ที่บันทึกไว้ถูกโหลดแล้ว กรุณาทดสอบการเชื่อมต่อ');
+      }
     } catch (e) {
       console.error("Failed to parse data from localStorage", e);
     }
@@ -237,6 +252,33 @@ export const App: React.FC = () => {
        console.error("Could not save history to localStorage. It might be full.", e);
     }
   }, [logHistory]);
+  
+  const handleVerifyGoogleApiKey = async () => {
+    if (!googleApiKey) {
+      setGoogleApiStatus('error');
+      setGoogleApiMessage('กรุณากรอก API Key');
+      return;
+    }
+    setGoogleApiStatus('verifying');
+    setGoogleApiMessage('กำลังทดสอบการเชื่อมต่อ...');
+    clearNotifications();
+
+    const { success, message } = await verifyApiKey(googleApiKey);
+    
+    setGoogleApiMessage(message);
+
+    if (success) {
+      setGoogleApiStatus('success');
+      try {
+        localStorage.setItem('googleApiKey', googleApiKey);
+      } catch (e) {
+        console.error("Could not save API Key to localStorage.", e);
+        setGoogleApiMessage(prev => `${prev} (แต่ไม่สามารถบันทึก API Key ลงในเบราว์เซอร์ได้)`);
+      }
+    } else {
+      setGoogleApiStatus('error');
+    }
+  };
 
   const handleDownloadExample = () => {
     const csvContent = "data:text/csv;charset=utf-8,\uFEFF"
@@ -333,6 +375,10 @@ export const App: React.FC = () => {
   };
 
   const handleGeneratePost = async () => {
+    if (googleApiStatus !== 'success') {
+      setError("กรุณาเชื่อมต่อ Google AI API Key ให้สำเร็จก่อน");
+      return;
+    }
     if (!sheetData || uploadedMedia.length === 0) {
       setError("กรุณากรอกข้อมูลสินค้าและอัปโหลดสื่อก่อน");
       return;
@@ -377,6 +423,10 @@ export const App: React.FC = () => {
   };
 
   const handleGenerateImageFromPrompt = async () => {
+    if (googleApiStatus !== 'success') {
+      setError("กรุณาเชื่อมต่อ Google AI API Key ให้สำเร็จก่อน");
+      return;
+    }
     if (!imageGenerationPrompt) {
       setError("กรุณาใส่คำสั่งสำหรับสร้างรูปภาพ");
       return;
@@ -399,6 +449,10 @@ export const App: React.FC = () => {
   };
 
   const handleGenerateVideo = async () => {
+    if (googleApiStatus !== 'success') {
+        setError("กรุณาเชื่อมต่อ Google AI API Key ให้สำเร็จก่อน");
+        return;
+    }
     if (!videoGenerationPrompt) {
         setError("กรุณาใส่คำสั่งสำหรับสร้างวิดีโอ");
         return;
@@ -411,6 +465,7 @@ export const App: React.FC = () => {
             videoGenerationPrompt,
             videoAspectRatio,
             (message: string) => setVideoGenerationStatusMessage(message),
+            googleApiKey,
             videoGenerationImage
         );
         setUploadedMedia([{
@@ -667,6 +722,7 @@ const handlePublish = async () => {
     }
   };
 
+  const isAiDisabled = googleApiStatus !== 'success';
   const isPostButtonDisabled = !generatedPost || uploadedMedia.length === 0 || !activePostId || isPosting || fbConnectionStatus !== 'success';
 
 
@@ -693,7 +749,35 @@ const handlePublish = async () => {
         
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-8">
           <div className="lg:col-span-3 space-y-8">
-            <Card title="1. เชื่อมต่อ Social Media" icon={<FacebookIcon />}>
+            <Card title="1. เชื่อมต่อ Google AI" icon={<KeyIcon />}>
+                <div className="space-y-4">
+                    <TextInput 
+                        label="Google AI API Key" 
+                        type="password" 
+                        value={googleApiKey} 
+                        onChange={e => setGoogleApiKey(e.target.value)} 
+                        placeholder="วาง API Key ของคุณที่นี่" 
+                    />
+                    <div className="flex items-center">
+                        <Button onClick={handleVerifyGoogleApiKey} isLoading={googleApiStatus === 'verifying'}>
+                            {googleApiStatus === 'success' ? 'เชื่อมต่อแล้ว' : 'บันทึกและทดสอบการเชื่อมต่อ'}
+                        </Button>
+                        <button onClick={() => setIsApiKeyModalOpen(true)} className="ml-3 text-gray-500 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors flex items-center">
+                            <InfoIcon />
+                            <span className="ml-1 text-sm font-medium">วิธีรับ API Key</span>
+                        </button>
+                    </div>
+                    {googleApiMessage && (
+                        <p className={`text-sm mt-2 ${
+                            googleApiStatus === 'error' ? 'text-red-600' :
+                            googleApiStatus === 'success' ? 'text-green-600' :
+                            'text-gray-600 dark:text-gray-400'
+                        }`}>{googleApiMessage}</p>
+                    )}
+                </div>
+            </Card>
+
+            <Card title="2. เชื่อมต่อ Social Media" icon={<FacebookIcon />}>
               <div className="space-y-4">
                 <h3 className="font-semibold text-gray-800 dark:text-gray-200">Facebook Page</h3>
                 <TextInput label="Facebook Page ID" value={facebookPageId} onChange={e => setFacebookPageId(e.target.value)} placeholder="e.g., 123456789012345" />
@@ -725,7 +809,7 @@ const handlePublish = async () => {
               </div>
             </Card>
 
-            <Card title="2. ใส่ข้อมูลสินค้า" icon={<GoogleSheetsIcon />}>
+            <Card title="3. ใส่ข้อมูลสินค้า" icon={<GoogleSheetsIcon />}>
                 <div className="space-y-4">
                     <label htmlFor="sheet-data" className="mb-2 font-semibold text-gray-700 dark:text-gray-300">ข้อมูลสินค้า (คัดลอกมาจาก Google Sheets)</label>
                     <textarea
@@ -741,7 +825,7 @@ const handlePublish = async () => {
                 </div>
             </Card>
 
-            <Card title="3. เตรียมสื่อ (รูปภาพ/วิดีโอ)" icon={<UploadIcon />}>
+            <Card title="4. เตรียมสื่อ (รูปภาพ/วิดีโอ)" icon={<UploadIcon />}>
                 <div className="space-y-4">
                     <div>
                         <label className="font-semibold text-gray-700 dark:text-gray-300 block mb-3">ประเภทโพสต์</label>
@@ -787,7 +871,7 @@ const handlePublish = async () => {
                     ) : postType === 'image' ? (
                         <div className="space-y-3">
                             <TextInput label="คำสั่งสำหรับสร้างรูปภาพ (ภาษาอังกฤษ)" value={imageGenerationPrompt} onChange={e => setImageGenerationPrompt(e.target.value)} placeholder="e.g., a photorealistic shot of a cotton t-shirt on a mannequin" />
-                            <Button onClick={handleGenerateImageFromPrompt} isLoading={isGeneratingImage}>สร้างรูปภาพ</Button>
+                            <Button onClick={handleGenerateImageFromPrompt} isLoading={isGeneratingImage} disabled={isAiDisabled}>สร้างรูปภาพ</Button>
                         </div>
                     ) : ( // postType === 'video'
                         <div className="space-y-4">
@@ -804,14 +888,14 @@ const handlePublish = async () => {
                                 <label className="flex items-center space-x-2 cursor-pointer"><input type="radio" name="aspectRatio" value="9:16" checked={videoAspectRatio === '9:16'} onChange={() => setVideoAspectRatio('9:16')} className="form-radio h-4 w-4 text-indigo-600" /><span className="text-sm">9:16 (แนวตั้ง)</span></label>
                               </div>
                             </div>
-                            <Button onClick={handleGenerateVideo} isLoading={isGeneratingVideo}>สร้างวิดีโอ</Button>
+                            <Button onClick={handleGenerateVideo} isLoading={isGeneratingVideo} disabled={isAiDisabled}>สร้างวิดีโอ</Button>
                             {isGeneratingVideo && videoGenerationStatusMessage && (<div className="text-center p-3 bg-indigo-50 dark:bg-indigo-900/30 rounded-lg"><p className="text-sm font-medium text-indigo-700 dark:text-indigo-300">{videoGenerationStatusMessage}</p></div>)}
                         </div>
                     )}
                 </div>
             </Card>
             
-            <Card title="4. สร้างแคปชั่นด้วย AI" icon={<SparklesIcon />}>
+            <Card title="5. สร้างแคปชั่นด้วย AI" icon={<SparklesIcon />}>
               <div className="space-y-4">
                   <div>
                     <label htmlFor="prompt-template" className="mb-2 font-semibold text-gray-700 dark:text-gray-300 block">เลือกเทมเพลต (ไม่บังคับ)</label>
@@ -840,7 +924,7 @@ const handlePublish = async () => {
                         <input type="range" id="max-tokens" min="100" max="1024" step="8" value={maxTokens} onChange={e => setMaxTokens(parseInt(e.target.value, 10))} className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700" />
                       </div>
                   </div>
-                  <Button onClick={handleGeneratePost} isLoading={isLoading}>
+                  <Button onClick={handleGeneratePost} isLoading={isLoading} disabled={isAiDisabled}>
                     {isLoading ? 'กำลังสร้างโพสต์...' : 'สร้างโพสต์ด้วย AI'}
                   </Button>
               </div>
@@ -849,7 +933,7 @@ const handlePublish = async () => {
           </div>
           
           <div className="lg:col-span-2 space-y-8">
-            <Card title="5. ตรวจสอบและโพสต์">
+            <Card title="6. ตรวจสอบและโพสต์">
               <div className="space-y-4">
                 <PostPreview 
                   pageName={pageName || 'ชื่อเพจของคุณ'}
@@ -906,6 +990,7 @@ const handlePublish = async () => {
         </div>
       </main>
       <InstructionsModal isOpen={isInstructionsOpen} onClose={() => setIsInstructionsOpen(false)} />
+      <ApiKeyModal isOpen={isApiKeyModalOpen} onClose={() => setIsApiKeyModalOpen(false)} />
     </>
   );
 };
