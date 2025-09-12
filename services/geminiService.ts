@@ -1,5 +1,3 @@
-
-
 import { GoogleGenAI, Chat } from "@google/genai";
 import type { UploadedImage } from '../types';
 
@@ -83,7 +81,8 @@ export async function generatePost(
   postType: 'image' | 'video' | 'carousel',
   customPrompt: string | undefined,
   temperature: number,
-  maxTokens: number
+  maxTokens: number,
+  captionLanguage: string
 ): Promise<string> {
   
   if (!ai) {
@@ -101,21 +100,21 @@ export async function generatePost(
     };
 
     const prompt = `
-      You are a professional social media manager creating an engaging Facebook post for a Thai audience.
+      You are a professional social media manager creating an engaging Facebook post.
       
-      **Context from Google Sheet:**
+      **Context from Google Sheet (in Thai):**
       ${sheetData}
 
       **Post Format:**
       ${postTypeInstruction[postType]}
 
       **Instructions:**
-      1. Write a compelling and creative caption in Thai for a Facebook post based on the provided context and the attached image(s).
+      1. Write a compelling and creative caption in ${captionLanguage}.
       2. The tone should be friendly, and professional, suitable for the product/service.
-      3. Include a clear call-to-action (e.g., "สั่งซื้อเลย!", "สอบถามเพิ่มเติมได้ที่...", "คลิกเลย!").
-      4. Add 3-5 relevant and popular hashtags in Thai.
+      3. Include a clear call-to-action (e.g., "Shop now!", "Learn more...", "Click here!").
+      4. Add 3-5 relevant and popular hashtags, also in ${captionLanguage}.
       5. Use emojis appropriately to make the post more engaging.
-      ${customPrompt ? `\n**User's Custom Instructions (in Thai):**\n${customPrompt}` : ''}
+      ${customPrompt ? `\n**User's Custom Instructions (in Thai):**\n${customPrompt}\n(Please understand the user's intent from their Thai instructions and apply it to the final caption in ${captionLanguage}.)` : ''}
 
       Generate only the text for the post caption. A product link will be added separately, so do not include any placeholder links or URLs in your response.
     `;

@@ -20,6 +20,8 @@ import { ChatIcon } from './components/icons/ChatIcon';
 import { LineIcon } from './components/icons/LineIcon';
 import { LineQrModal } from './components/LineQrModal';
 import { HelpIcon } from './components/icons/HelpIcon';
+import { SunIcon } from './components/icons/SunIcon';
+import { MoonIcon } from './components/icons/MoonIcon';
 import type { UploadedImage, LogEntry } from './types';
 import { generatePost, generateImage, generateVideo, verifyApiKey } from './services/geminiService';
 
@@ -172,6 +174,9 @@ const generateThumbnail = (base64: string, mediaType: 'image' | 'video'): Promis
 
 
 export const App: React.FC = () => {
+  // Theme State
+  const [theme, setTheme] = useState<'light' | 'dark'>('light');
+
   // Google API Key State
   const [googleApiKey, setGoogleApiKey] = useState<string>('');
   const [googleApiStatus, setGoogleApiStatus] = useState<'idle' | 'verifying' | 'success' | 'error'>('idle');
@@ -193,6 +198,7 @@ export const App: React.FC = () => {
   
   const [temperature, setTemperature] = useState<number>(0.7);
   const [maxTokens, setMaxTokens] = useState<number>(400);
+  const [captionLanguage, setCaptionLanguage] = useState<string>('Thai');
 
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isPosting, setIsPosting] = useState<boolean>(false);
@@ -223,6 +229,28 @@ export const App: React.FC = () => {
   const [videoAspectRatio, setVideoAspectRatio] = useState<'16:9' | '9:16'>('16:9');
   const [isGeneratingVideo, setIsGeneratingVideo] = useState<boolean>(false);
   const [videoGenerationStatusMessage, setVideoGenerationStatusMessage] = useState<string | null>(null);
+
+  // Theme Management Effect
+  useEffect(() => {
+    const savedTheme = localStorage.getItem('theme') as 'light' | 'dark' | null;
+    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    const initialTheme = savedTheme || (prefersDark ? 'dark' : 'light');
+    setTheme(initialTheme);
+  }, []);
+
+  useEffect(() => {
+    if (theme === 'dark') {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+    localStorage.setItem('theme', theme);
+  }, [theme]);
+
+  const toggleTheme = () => {
+    setTheme(prevTheme => (prevTheme === 'light' ? 'dark' : 'light'));
+  };
+
 
   const handlePostTypeChange = (newType: 'image' | 'video' | 'carousel') => {
     setPostType(newType);
@@ -392,7 +420,7 @@ export const App: React.FC = () => {
     clearNotifications();
     
     try {
-      const caption = await generatePost(sheetData, uploadedMedia, postType, customPrompt, temperature, maxTokens);
+      const caption = await generatePost(sheetData, uploadedMedia, postType, customPrompt, temperature, maxTokens, captionLanguage);
       
       let finalPost = caption.trim();
       const linkToUse = shopeeLink.trim();
@@ -739,6 +767,16 @@ const handlePublish = async () => {
   return (
     <>
       <main className="container mx-auto p-4 sm:p-6 lg:p-8">
+        <div className="fixed top-6 right-6 z-50">
+            <button
+                onClick={toggleTheme}
+                className="w-12 h-12 bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 rounded-full flex items-center justify-center shadow-lg hover:bg-gray-300 dark:hover:bg-gray-600 transition-all transform hover:scale-110"
+                aria-label="Toggle theme"
+            >
+                {theme === 'light' ? <MoonIcon /> : <SunIcon />}
+            </button>
+        </div>
+
         <header className="text-center mb-8">
           <h1 className="text-4xl font-bold animated-gradient-text">AI Facebook Post Automator</h1>
           <p className="text-lg text-gray-600 dark:text-gray-300 mt-2">สร้างและโพสต์คอนเทนต์ลง Facebook และ Instagram ด้วยพลังของ AI</p>
@@ -914,6 +952,20 @@ const handlePublish = async () => {
             
             <Card title="5. สร้างแคปชั่นด้วย AI" icon={<SparklesIcon />}>
               <div className="space-y-4">
+                  <div>
+                    <label htmlFor="caption-language" className="mb-2 font-semibold text-gray-700 dark:text-gray-300 block">ภาษาของแคปชั่น</label>
+                    <select 
+                        id="caption-language" 
+                        value={captionLanguage}
+                        onChange={e => setCaptionLanguage(e.target.value)}
+                        className="w-full p-2 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md"
+                    >
+                        <option value="Thai">ไทย</option>
+                        <option value="English">English</option>
+                        <option value="Japanese">日本語 (Japanese)</option>
+                        <option value="Chinese">中文 (Chinese)</option>
+                    </select>
+                  </div>
                   <div>
                     <label htmlFor="prompt-template" className="mb-2 font-semibold text-gray-700 dark:text-gray-300 block">เลือกเทมเพลต (ไม่บังคับ)</label>
                     <select id="prompt-template" onChange={e => setCustomPrompt(e.target.value)} className="w-full p-2 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md">
