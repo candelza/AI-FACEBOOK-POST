@@ -388,12 +388,13 @@ export const App: React.FC = () => {
       const caption = await generatePost(sheetData, uploadedMedia, postType, customPrompt, temperature, maxTokens);
       
       let finalPost = caption.trim();
-      const trimmedLink = shopeeLink.trim();
-      if (trimmedLink) {
+      const linkToUse = shopeeLink.trim();
+
+      if (linkToUse) {
         // Ensure the link has a protocol for better clickability on platforms.
-        const fullLink = !(trimmedLink.startsWith('http://') || trimmedLink.startsWith('https://'))
-          ? `https://${trimmedLink}`
-          : trimmedLink;
+        const fullLink = !(linkToUse.startsWith('http://') || linkToUse.startsWith('https://'))
+          ? `https://${linkToUse}`
+          : linkToUse;
         finalPost = `${finalPost}\n\n🛒 สั่งซื้อเลย: ${fullLink}`;
       }
       
@@ -531,6 +532,7 @@ const handlePublish = async () => {
             fbFormData.append('attached_media', JSON.stringify(attachedMedia));
             if (!!scheduledTime) {
                 fbFormData.append('scheduled_publish_time', String(Math.floor(new Date(scheduledTime).getTime() / 1000)));
+                fbFormData.append('published', 'false');
             } else if (postPrivacy === 'unpublished') {
                 fbFormData.append('published', 'false');
                 fbFormData.append('unpublished_content_type', 'SCHEDULED');
@@ -573,7 +575,7 @@ const handlePublish = async () => {
                 const pollContainer = async (creationId: string) => {
                     let status = '';
                     let attempts = 0;
-                    while (status !== 'FINISHED' && attempts < 24) {
+                    while (status !== 'FINISHED' && attempts < 24) { // Poll for up to 2 minutes
                         await new Promise(resolve => setTimeout(resolve, 5000));
                         const statusRes = await fetch(`https://graph.facebook.com/v20.0/${creationId}?fields=status_code&access_token=${pageAccessToken}`);
                         const statusData = await statusRes.json();
@@ -604,7 +606,7 @@ const handlePublish = async () => {
                 if (postType === 'carousel') {
                     // Instagram Carousel Post
                     const childContainerIds: string[] = [];
-                    // Get URLs for each uploaded (but unpublished) FB photo
+                    // Upload each image as a temporary unpublished FB photo to get a public URL for IG
                      for (const media of uploadedMedia) {
                         const blob = dataURLtoBlob(media.base64);
                         const tempFormData = new FormData();
@@ -625,11 +627,14 @@ const handlePublish = async () => {
                         childContainerIds.push(childId);
                     }
 
+                    // Poll all child containers until they are ready
                     await Promise.all(childContainerIds.map(id => pollContainer(id)));
                     
+                    // Create the parent carousel container
                     const carouselContainerParams = new URLSearchParams({ access_token: pageAccessToken, media_type: 'CAROUSEL', children: childContainerIds.join(','), caption: generatedPost });
                     const carouselCreationId = await createIgMediaContainer(carouselContainerParams);
 
+                    // Poll and publish the final carousel container
                     await pollContainer(carouselCreationId);
                     await publishIgContainer(carouselCreationId);
 
@@ -809,17 +814,24 @@ const handlePublish = async () => {
 
             <Card title="3. ใส่ข้อมูลสินค้า" icon={<GoogleSheetsIcon />}>
                 <div className="space-y-4">
-                    <label htmlFor="sheet-data" className="mb-2 font-semibold text-gray-700 dark:text-gray-300">ข้อมูลสินค้า (คัดลอกมาจาก Google Sheets)</label>
-                    <textarea
-                        id="sheet-data"
-                        rows={6}
-                        value={sheetData}
-                        onChange={e => setSheetData(e.target.value)}
-                        placeholder={"ตัวอย่าง:\nหัวข้อ,รายละเอียด\nสินค้า,เสื้อยืดคอตตอน 100%\nราคา,590 บาท"}
-                        className="w-full p-2 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition"
-                    ></textarea>
-                    <button onClick={handleDownloadExample} className="text-sm text-indigo-600 dark:text-indigo-400 hover:underline">ดาวน์โหลดไฟล์ตัวอย่าง (.csv)</button>
-                     <TextInput label="ลิงก์สินค้า (เช่น Shopee, Lazada)" value={shopeeLink} onChange={e => setShopeeLink(e.target.value)} placeholder="https://..." />
+                    <div>
+                        <label htmlFor="sheet-data" className="mb-2 font-semibold text-gray-700 dark:text-gray-300">ข้อมูลสินค้า (คัดลอกมาจาก Google Sheets)</label>
+                        <textarea
+                            id="sheet-data"
+                            rows={6}
+                            value={sheetData}
+                            onChange={e => setSheetData(e.target.value)}
+                            placeholder={"ตัวอย่าง:\nหัวข้อ,รายละเอียด\nสินค้า,เสื้อยืดคอตตอน 100%\nราคา,590 บาท"}
+                            className="w-full p-2 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition"
+                        ></textarea>
+                        <button onClick={handleDownloadExample} className="text-sm text-indigo-600 dark:text-indigo-400 hover:underline">ดาวน์โหลดไฟล์ตัวอย่าง (.csv)</button>
+                    </div>
+                    <TextInput 
+                        label="ลิงก์สินค้า (เช่น Shopee, Lazada)" 
+                        value={shopeeLink} 
+                        onChange={e => setShopeeLink(e.target.value)} 
+                        placeholder="https://..."
+                    />
                 </div>
             </Card>
 

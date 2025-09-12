@@ -21,7 +21,7 @@ export const PostPreview: React.FC<PostPreviewProps> = ({ pageId, pageName, cont
   const [currentIndex, setCurrentIndex] = useState(0);
 
   useEffect(() => {
-    // Reset index if media changes
+    // Reset index if media changes, to avoid out-of-bounds index
     setCurrentIndex(0);
   }, [media]);
 
@@ -57,12 +57,12 @@ export const PostPreview: React.FC<PostPreviewProps> = ({ pageId, pageName, cont
         </div>
       </div>
       <p className="mb-3 text-gray-800 dark:text-gray-200 whitespace-pre-wrap">{content}</p>
-      <div className="relative rounded-lg overflow-hidden bg-gray-100 dark:bg-gray-800/50 min-h-[200px] flex items-center justify-center">
+      <div className="relative rounded-lg overflow-hidden bg-gray-100 dark:bg-gray-800/50 min-h-[200px] flex items-center justify-center aspect-square">
         {currentMedia ? (
           currentMedia.mediaType === 'video' ? (
-              <video src={currentMedia.base64} controls className="w-full h-auto object-cover" />
+              <video src={currentMedia.base64} controls className="w-full h-full object-cover" />
           ) : (
-              <img src={currentMedia.base64} alt="Post preview" className="w-full h-auto object-cover" />
+              <img src={currentMedia.base64} alt="Post preview" className="w-full h-full object-cover" />
           )
         ) : (
            <div className="text-center text-gray-500 dark:text-gray-400 text-sm">
@@ -80,7 +80,7 @@ export const PostPreview: React.FC<PostPreviewProps> = ({ pageId, pageName, cont
                 </button>
                 <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex space-x-2">
                     {media.map((_, index) => (
-                        <div key={index} className={`w-2 h-2 rounded-full ${index === currentIndex ? 'bg-white' : 'bg-white/50'}`}></div>
+                        <div key={index} className={`w-2 h-2 rounded-full transition-colors ${index === currentIndex ? 'bg-white' : 'bg-white/50'}`}></div>
                     ))}
                 </div>
             </>
