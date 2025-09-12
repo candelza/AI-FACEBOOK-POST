@@ -36,33 +36,68 @@ const promptTemplates = [
   { name: 'เรื่องเล่าจากทีมงาน', value: 'เขียนแคปชั่นในรูปแบบการเล่าเรื่อง แนะนำสมาชิกในทีม หรือเล่าถึงความท้าทายและความสำเร็จในการทำงาน เพื่อสร้างภาพลักษณ์ที่เข้าถึงง่ายและเป็นมนุษย์ให้กับแบรนด์' },
 ];
 
-const translateFacebookError = (error: { code: number; message: any }): string => {
-  const messageString = typeof error.message === 'string'
-    ? error.message
-    : JSON.stringify(error.message);
+const translateFacebookError = (error: any): string => {
+  if (!error) {
+    return 'เกิดข้อผิดพลาดที่ไม่รู้จักจาก Facebook';
+  }
 
-  const message = messageString.toLowerCase();
+  if (error instanceof Error) {
+    return error.message;
+  }
 
-  switch (error.code) {
-    case 190: // Invalid or expired token
-      return 'Access Token หมดอายุ: ระบบได้ตัดการเชื่อมต่ออัตโนมัติ กรุณาสร้าง Access Token ใหม่จาก "Facebook Developer Tools" และทำการเชื่อมต่ออีกครั้ง';
-    
-    case 200: // Permissions error
-      if (message.includes('permission')) {
-        return 'โพสต์ไม่สำเร็จ: Access Token ไม่มีสิทธิ์ "pages_manage_posts" กรุณาคลิกปุ่ม "วิธีเชื่อมต่อ Facebook" เพื่อดูวิธีแก้ไขโดยละเอียด';
-      }
-      return `เกิดข้อผิดพลาดในการดำเนินการจาก Facebook (Code 200): ${messageString}`;
+  if (typeof error === 'string') {
+    return error;
+  }
 
-    case 803: // Page not found
-      return 'ไม่พบเพจที่ระบุ: Page ID ที่คุณกรอกไม่ถูกต้องหรือไม่ตรงกับเพจใดๆ กรุณาตรวจสอบ Page ID ของคุณในหน้า "About" หรือ "Page Transparency" ของเพจอีกครั้ง';
+  // Check for a nested 'error' object, which is common in Graph API responses,
+  // or use the object itself if it's the top-level error.
+  const apiError = error.error || error;
 
-    case 10: // API limit
-      return 'เรียกใช้งานมากเกินไป: คุณได้พยายามเชื่อมต่อหรือโพสต์บ่อยเกินไป กรุณารอสักครู่ (ประมาณ 5-10 นาที) แล้วลองใหม่อีกครั้ง';
+  // Now, check if the processed error object has a message.
+  if (apiError.message && typeof apiError.message === 'string') {
+    const messageString = apiError.message;
+    const message = messageString.toLowerCase();
 
-    default:
-      return `เกิดข้อผิดพลาดจาก Facebook (Code ${error.code}): ${messageString}`;
+    switch (apiError.code) {
+      case 190: // Invalid or expired token
+        return 'Access Token หมดอายุ: ระบบได้ตัดการเชื่อมต่ออัตโนมัติ กรุณาสร้าง Access Token ใหม่จาก "Facebook Developer Tools" และทำการเชื่อมต่ออีกครั้ง';
+      
+      case 200: // Permissions error
+        if (message.includes('permission') || message.includes('permissions')) {
+          return 'โพสต์ไม่สำเร็จ: Access Token ไม่มีสิทธิ์ที่จำเป็น (เช่น pages_manage_posts) กรุณาคลิกปุ่ม "วิธีเชื่อมต่อ Facebook" เพื่อดูวิธีแก้ไขโดยละเอียด';
+        }
+        return `เกิดข้อผิดพลาดในการดำเนินการจาก Facebook (Code 200): ${messageString}`;
+
+      case 803: // Page not found
+        return 'ไม่พบเพจที่ระบุ: Page ID ที่คุณกรอกไม่ถูกต้องหรือไม่ตรงกับเพจใดๆ กรุณาตรวจสอบ Page ID ของคุณในหน้า "About" หรือ "Page Transparency" ของเพจอีกครั้ง';
+
+      case 10: // API limit
+        return 'เรียกใช้งานมากเกินไป: คุณได้พยายามเชื่อมต่อหรือโพสต์บ่อยเกินไป กรุณารอสักครู่ (ประมาณ 5-10 นาที) แล้วลองใหม่อีกครั้ง';
+
+      default:
+        let errorMessage = 'เกิดข้อผิดพลาดจาก Facebook';
+        if (apiError.code) {
+            errorMessage += ` (Code ${apiError.code})`;
+        }
+        if (apiError.error_subcode) {
+            errorMessage += ` (Subcode ${apiError.error_subcode})`;
+        }
+        return `${errorMessage}: ${messageString}`;
+    }
+  }
+
+  // Fallback for unknown object shapes
+  try {
+    const stringifiedError = JSON.stringify(error);
+    if (stringifiedError === '{}') {
+       return 'เกิดข้อผิดพลาดที่ไม่รู้จัก (ได้รับอ็อบเจกต์เปล่าจาก API)';
+    }
+    return `ได้รับข้อผิดพลาดในรูปแบบที่ไม่รู้จัก: ${stringifiedError}`;
+  } catch (e) {
+    return 'เกิดข้อผิดพลาดที่ไม่สามารถแสดงรายละเอียดได้';
   }
 };
+
 
 const dataURLtoBlob = (dataurl: string) => {
     const arr = dataurl.split(',');
@@ -269,14 +304,25 @@ export const App: React.FC = () => {
     clearNotifications();
     
     try {
-      const caption = await generatePost(sheetData, uploadedImage, customPrompt, temperature, maxTokens, shopeeLink);
-      setGeneratedPost(caption);
+      const caption = await generatePost(sheetData, uploadedImage, customPrompt, temperature, maxTokens);
+      
+      let finalPost = caption.trim();
+      const trimmedLink = shopeeLink.trim();
+      if (trimmedLink) {
+        // Ensure the link has a protocol for better clickability on platforms.
+        const fullLink = !(trimmedLink.startsWith('http://') || trimmedLink.startsWith('https://'))
+          ? `https://${trimmedLink}`
+          : trimmedLink;
+        finalPost = `${finalPost}\n\n🛒 สั่งซื้อเลย: ${fullLink}`;
+      }
+      
+      setGeneratedPost(finalPost);
       
       const thumbnailUrl = await generateThumbnail(uploadedImage.base64, uploadedImage.mediaType);
       const newLog: LogEntry = {
         id: `post_${Date.now()}`,
         timestamp: new Date().toISOString(),
-        content: caption,
+        content: finalPost,
         thumbnailUrl,
         mediaType: uploadedImage.mediaType,
         status: 'Generated',
@@ -313,7 +359,7 @@ export const App: React.FC = () => {
     }
   };
 
-  const handlePublish = async () => {
+const handlePublish = async () => {
     if (!generatedPost || !uploadedImage || !activePostId) {
         setError("กรุณาสร้างโพสต์ก่อน");
         return;
@@ -330,70 +376,125 @@ export const App: React.FC = () => {
     setIsPosting(true);
     clearNotifications();
 
+    let pageAccessToken = '';
+
     try {
+        // Step 1: Get Page Access Token
         const pageTokenResponse = await fetch(`https://graph.facebook.com/v20.0/${facebookPageId}?fields=access_token&access_token=${facebookUserToken}`);
         const pageTokenData = await pageTokenResponse.json();
-        if (!pageTokenResponse.ok) throw { api: 'facebook_page_token', data: pageTokenData.error };
-        const pageAccessToken = pageTokenData.access_token;
-
-        if (postToInstagram && postPrivacy === 'unpublished' && !scheduledTime) {
-            throw { 
-                custom_error: true, 
-                message: 'Instagram ไม่รองรับการโพสต์แบบ "ไม่แสดงบนฟีด" (Unpublished) กรุณาตั้งเวลาโพสต์แทน หรือเอาเครื่องหมายโพสต์ลง Instagram ออก' 
-            };
-        }
-
+        if (!pageTokenResponse.ok) throw (pageTokenData.error || pageTokenData);
+        pageAccessToken = pageTokenData.access_token;
+        
+        // Step 2: Post to Facebook
         const postEndpoint = uploadedImage.mediaType === 'video'
             ? `https://graph-video.facebook.com/v20.0/${facebookPageId}/videos`
             : `https://graph.facebook.com/v20.0/${facebookPageId}/photos`;
 
-        const postFormData = new FormData();
-        postFormData.append('access_token', pageAccessToken);
-        
+        const fbFormData = new FormData();
+        fbFormData.append('access_token', pageAccessToken);
         if (uploadedImage.mediaType === 'video') {
-            postFormData.append('description', generatedPost);
+            fbFormData.append('description', generatedPost);
         } else {
-            postFormData.append('message', generatedPost);
+            fbFormData.append('message', generatedPost);
         }
-
         const blob = dataURLtoBlob(uploadedImage.base64);
-        postFormData.append('source', blob, uploadedImage.file?.name || (uploadedImage.mediaType === 'video' ? 'video.mp4' : 'image.png'));
-
-        const platforms: ('FACEBOOK' | 'INSTAGRAM')[] = ['FACEBOOK'];
-        if (postToInstagram) {
-            platforms.push('INSTAGRAM');
-        }
-        postFormData.append('platforms', JSON.stringify(platforms));
+        fbFormData.append('source', blob, uploadedImage.file?.name || (uploadedImage.mediaType === 'video' ? 'video.mp4' : 'image.png'));
 
         const isScheduled = !!scheduledTime;
         if (isScheduled) {
             const scheduledTimestamp = Math.floor(new Date(scheduledTime).getTime() / 1000);
-            postFormData.append('scheduled_publish_time', String(scheduledTimestamp));
-            postFormData.append('published', 'false');
+            fbFormData.append('scheduled_publish_time', String(scheduledTimestamp));
+            fbFormData.append('published', 'false');
         } else {
-             if (postPrivacy === 'unpublished') {
-                postFormData.append('published', 'false');
-                postFormData.append('unpublished_content_type', 'SCHEDULED');
-             } else {
-                postFormData.append('published', 'true');
-             }
+            if (postPrivacy === 'unpublished') {
+                fbFormData.append('published', 'false');
+                fbFormData.append('unpublished_content_type', 'SCHEDULED');
+            } else {
+                fbFormData.append('published', 'true');
+            }
+        }
+        
+        const fbPostResponse = await fetch(postEndpoint, { method: 'POST', body: fbFormData });
+        const fbPostData = await fbPostResponse.json();
+        if (!fbPostResponse.ok) throw (fbPostData.error || fbPostData);
+
+        let successMessageText = 'Facebook';
+
+        // Step 3: Post to Instagram (if requested)
+        if (postToInstagram) {
+            try {
+                if (!instagramAccountId) throw new Error("Instagram Account ID is not set.");
+                
+                // 3a: Get media URL from the FB post
+                const mediaId = fbPostData.id;
+                let mediaUrl = '';
+                if (uploadedImage.mediaType === 'image') {
+                    const imageInfoRes = await fetch(`https://graph.facebook.com/v20.0/${mediaId}?fields=images&access_token=${pageAccessToken}`);
+                    const imageInfoData = await imageInfoRes.json();
+                    if (!imageInfoRes.ok) throw (imageInfoData.error || imageInfoData);
+                    if (imageInfoData.images && imageInfoData.images.length > 0) mediaUrl = imageInfoData.images[0].source;
+                } else { // Video
+                    const videoInfoRes = await fetch(`https://graph.facebook.com/v20.0/${mediaId}?fields=source&access_token=${pageAccessToken}`);
+                    const videoInfoData = await videoInfoRes.json();
+                    if (!videoInfoRes.ok) throw (videoInfoData.error || videoInfoData);
+                    mediaUrl = videoInfoData.source;
+                }
+                if (!mediaUrl) throw new Error("Could not retrieve media URL from Facebook to post to Instagram.");
+
+                // 3b: Create IG Media Container
+                const containerParams = new URLSearchParams({ access_token: pageAccessToken, caption: generatedPost });
+                if (uploadedImage.mediaType === 'image') {
+                    containerParams.append('image_url', mediaUrl);
+                } else {
+                    containerParams.append('media_type', 'VIDEO');
+                    containerParams.append('video_url', mediaUrl);
+                }
+                const containerRes = await fetch(`https://graph.facebook.com/v20.0/${instagramAccountId}/media`, { method: 'POST', body: containerParams });
+                const containerData = await containerRes.json();
+                if (!containerRes.ok) throw (containerData.error || containerData);
+                const creationId = containerData.id;
+
+                // 3c: Poll for container status
+                let containerStatus = '';
+                let attempts = 0;
+                while(containerStatus !== 'FINISHED' && attempts < 24) { // Timeout after 2 minutes
+                     await new Promise(resolve => setTimeout(resolve, 5000));
+                     const statusRes = await fetch(`https://graph.facebook.com/v20.0/${creationId}?fields=status_code&access_token=${pageAccessToken}`);
+                     const statusData = await statusRes.json();
+                     if (!statusRes.ok) throw (statusData.error || statusData);
+                     containerStatus = statusData.status_code;
+                     if(containerStatus === 'ERROR') throw new Error(`Instagram media container failed with status: ${statusData.status || 'Unknown'}`);
+                     attempts++;
+                }
+                if (containerStatus !== 'FINISHED') throw new Error("Instagram media container processing timed out.");
+                
+                // 3d: Publish container
+                const publishRes = await fetch(`https://graph.facebook.com/v20.0/${instagramAccountId}/media_publish`, {
+                    method: 'POST',
+                    body: new URLSearchParams({ access_token: pageAccessToken, creation_id: creationId })
+                });
+                const publishData = await publishRes.json();
+                if (!publishRes.ok) throw (publishData.error || publishData);
+
+                successMessageText = "Facebook และ Instagram";
+
+            } catch (igError: any) {
+                console.error("Failed to post to Instagram:", igError);
+                const igErrorMessage = translateFacebookError(igError);
+                successMessageText = `Facebook (แต่โพสต์ลง Instagram ล้มเหลว: ${igErrorMessage})`;
+            }
         }
 
-        const postResponse = await fetch(postEndpoint, { method: 'POST', body: postFormData });
-        const postData = await postResponse.json();
-        if (!postResponse.ok) throw { api: 'facebook_publish', data: postData.error };
+        const finalSuccessMessage = isScheduled
+            ? `ตั้งเวลาโพสต์ลง ${successMessageText} สำเร็จแล้ว`
+            : (postPrivacy === 'unpublished' ? `โพสต์แบบไม่แสดงบนฟีดลง ${successMessageText} สำเร็จ` : `โพสต์ลง ${successMessageText} สำเร็จแล้ว!`);
+        setPostSuccess(finalSuccessMessage);
 
-        const platformText = postToInstagram ? "Facebook และ Instagram" : "Facebook";
-        const successMessage = isScheduled
-            ? `ตั้งเวลาโพสต์ลง ${platformText} สำเร็จแล้ว`
-            : (postPrivacy === 'unpublished' ? `โพสต์แบบไม่แสดงบนฟีดลง ${platformText} สำเร็จ` : `โพสต์ลง ${platformText} สำเร็จแล้ว!`);
-        setPostSuccess(successMessage);
-        
         setLogHistory(prev => prev.map(log => log.id === activePostId ? {
             ...log,
             status: isScheduled ? 'Scheduled' : 'Posted',
             scheduledTimestamp: isScheduled ? new Date(scheduledTime).toISOString() : undefined,
-            facebookPostId: postData.id,
+            facebookPostId: fbPostData.id,
             privacy: postPrivacy,
         } : log));
         setActivePostId(null);
@@ -401,17 +502,8 @@ export const App: React.FC = () => {
 
     } catch (err: any) {
         console.error("Publishing error:", err);
-        if (err.custom_error) {
-            setError(err.message);
-        } else {
-            const errorMessage = err.api === 'facebook_publish'
-                ? translateFacebookError(err.data)
-                : (err.api === 'facebook_page_token'
-                    ? `ไม่สามารถยืนยัน Page Access Token (Code: ${err.data?.error?.code}): ${err.data?.error?.message}. ตรวจสอบ Page ID และสิทธิ์ของ User Token`
-                    : (err.message || 'เกิดข้อผิดพลาดที่ไม่รู้จัก'));
-            setError(errorMessage);
-            setLogHistory(prev => prev.map(log => log.id === activePostId ? {...log, status: 'Failed'} : log));
-        }
+        setError(translateFacebookError(err));
+        setLogHistory(prev => prev.map(log => log.id === activePostId ? {...log, status: 'Failed'} : log));
     } finally {
         setIsPosting(false);
     }

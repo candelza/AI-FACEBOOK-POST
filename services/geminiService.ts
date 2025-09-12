@@ -1,3 +1,5 @@
+
+
 import { GoogleGenAI } from "@google/genai";
 import type { UploadedImage } from '../types';
 
@@ -6,8 +8,7 @@ export async function generatePost(
   image: UploadedImage,
   customPrompt: string | undefined,
   temperature: number,
-  maxTokens: number,
-  shopeeLink: string | undefined
+  maxTokens: number
 ): Promise<string> {
   
   if (!process.env.API_KEY) {
@@ -27,12 +28,11 @@ export async function generatePost(
       1. Write a compelling and creative caption in Thai for a Facebook post based on the provided context and the attached image.
       2. The tone should be friendly, and professional, suitable for the product/service.
       3. Include a clear call-to-action (e.g., "สั่งซื้อเลย!", "สอบถามเพิ่มเติมได้ที่...", "คลิกเลย!").
-      ${shopeeLink ? `4. **Crucially, you must include this Shopee link in the post, preferably near the call-to-action:** ${shopeeLink}` : ''}
-      5. Add 3-5 relevant and popular hashtags in Thai.
-      6. Use emojis appropriately to make the post more engaging.
+      4. Add 3-5 relevant and popular hashtags in Thai.
+      5. Use emojis appropriately to make the post more engaging.
       ${customPrompt ? `\n**User's Custom Instructions (in Thai):**\n${customPrompt}` : ''}
 
-      Generate only the text for the post caption. Do not include any other explanatory text or markdown formatting.
+      Generate only the text for the post caption. A product link will be added separately, so do not include any placeholder links or URLs in your response.
     `;
 
     const imagePart = {
@@ -69,12 +69,22 @@ export async function generatePost(
 
     return text.trim();
 
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error generating post with Gemini API:", error);
-    if (error instanceof Error) {
-      if (error.message.includes('API key not valid')) {
-        throw new Error('Google AI API Key ที่ตั้งค่าไว้ในระบบไม่ถูกต้อง');
+    if (error?.message?.includes('API key not valid')) {
+      throw new Error('Google AI API Key ที่ตั้งค่าไว้ในระบบไม่ถูกต้อง');
+    }
+    
+    // Handle structured API errors from Google AI
+    if (error?.error?.message) {
+      const apiError = error.error;
+      if (apiError.status === 'RESOURCE_EXHAUSTED' || apiError.code === 429) {
+          throw new Error(`สร้างโพสต์ไม่สำเร็จ: คุณใช้งานเกินโควต้าที่กำหนดแล้ว กรุณาลองใหม่ในวันถัดไป`);
       }
+      throw new Error(`เกิดข้อผิดพลาดจาก AI (Code ${apiError.code}): ${apiError.message}`);
+    }
+
+    if (error instanceof Error) {
       // Re-throw custom error messages from the try block
       throw error;
     }
@@ -88,10 +98,17 @@ export async function generateImage(prompt: string): Promise<{ base64: string, m
   }
 
   try {
+    const enhancedPrompt = `
+      Professional, high-quality marketing photography for a social media post.
+      Subject: "${prompt}".
+      Style: Photorealistic, clean, bright lighting, high detail, studio quality.
+      Avoid: text, logos, watermarks, blurry backgrounds, unrealistic shadows.
+    `;
+    
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const response = await ai.models.generateImages({
         model: 'imagen-4.0-generate-001',
-        prompt: prompt,
+        prompt: enhancedPrompt,
         config: {
           numberOfImages: 1,
           outputMimeType: 'image/png',
@@ -111,15 +128,25 @@ export async function generateImage(prompt: string): Promise<{ base64: string, m
         mimeType: 'image/png'
     };
 
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error generating image with Imagen API:", error);
-    if (error instanceof Error) {
-      if (error.message.includes('API key not valid')) {
-        throw new Error('Google AI API Key ที่ตั้งค่าไว้ในระบบไม่ถูกต้อง');
-      }
-       // Re-throw custom error messages from the try block
-      throw error;
-    }
-    throw new Error("ไม่สามารถสร้างรูปภาพได้ โมเดล AI อาจไม่พร้อมใช้งานหรือเกิดข้อผิดพลาด");
+    if (error?.message?.includes('API key not valid')) {
+     throw new Error('Google AI API Key ที่ตั้งค่าไว้ในระบบไม่ถูกต้อง');
+   }
+   
+   // Handle structured API errors from Google AI
+   if (error?.error?.message) {
+     const apiError = error.error;
+     if (apiError.status === 'RESOURCE_EXHAUSTED' || apiError.code === 429) {
+         throw new Error(`สร้างรูปภาพไม่สำเร็จ: คุณใช้งานเกินโควต้าที่กำหนดแล้ว กรุณาลองใหม่ในวันถัดไป`);
+     }
+     throw new Error(`เกิดข้อผิดพลาดจาก AI (Code ${apiError.code}): ${apiError.message}`);
+   }
+
+   if (error instanceof Error) {
+      // Re-throw custom error messages from the try block
+     throw error;
+   }
+   throw new Error("ไม่สามารถสร้างรูปภาพได้ โมเดล AI อาจไม่พร้อมใช้งานหรือเกิดข้อผิดพลาด");
   }
 }
