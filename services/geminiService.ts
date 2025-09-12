@@ -1,5 +1,6 @@
 
-import { GoogleGenAI } from "@google/genai";
+
+import { GoogleGenAI, Chat } from "@google/genai";
 import type { UploadedImage } from '../types';
 
 // A single, module-level client instance.
@@ -283,4 +284,17 @@ export async function generateVideo(
         }
         throw new Error(`ไม่สามารถสร้างวิดีโอได้: ${translateGeminiError(error)}`);
     }
+}
+
+
+export function createChatSession(): Chat {
+  if (!ai) {
+    throw new Error("กรุณาเชื่อมต่อและตรวจสอบ Google AI API Key ของคุณก่อน");
+  }
+  return ai.chats.create({
+    model: 'gemini-2.5-flash',
+    config: {
+      systemInstruction: 'You are a friendly and helpful assistant for a social media management app. Your name is Candelaz AI. You communicate in Thai. Keep your answers helpful and concise.',
+    },
+  });
 }

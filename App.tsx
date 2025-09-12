@@ -15,6 +15,11 @@ import { UploadIcon } from './components/icons/UploadIcon';
 import { Checkbox } from './components/Checkbox';
 import { ApiKeyModal } from './components/ApiKeyModal';
 import { KeyIcon } from './components/icons/KeyIcon';
+import { ChatModal } from './components/ChatModal';
+import { ChatIcon } from './components/icons/ChatIcon';
+import { LineIcon } from './components/icons/LineIcon';
+import { LineQrModal } from './components/LineQrModal';
+import { HelpIcon } from './components/icons/HelpIcon';
 import type { UploadedImage, LogEntry } from './types';
 import { generatePost, generateImage, generateVideo, verifyApiKey } from './services/geminiService';
 
@@ -196,6 +201,8 @@ export const App: React.FC = () => {
   
   const [logHistory, setLogHistory] = useState<LogEntry[]>([]);
   const [isInstructionsOpen, setIsInstructionsOpen] = useState<boolean>(false);
+  const [isChatModalOpen, setIsChatModalOpen] = useState<boolean>(false);
+  const [isLineQrModalOpen, setIsLineQrModalOpen] = useState<boolean>(false);
 
   // Connection State
   const [fbConnectionStatus, setFbConnectionStatus] = useState<'idle' | 'verifying' | 'success' | 'error'>('idle');
@@ -733,7 +740,7 @@ const handlePublish = async () => {
     <>
       <main className="container mx-auto p-4 sm:p-6 lg:p-8">
         <header className="text-center mb-8">
-          <h1 className="text-4xl font-bold text-gray-800 dark:text-white">AI Facebook Post Automator</h1>
+          <h1 className="text-4xl font-bold animated-gradient-text">AI Facebook Post Automator</h1>
           <p className="text-lg text-gray-600 dark:text-gray-300 mt-2">สร้างและโพสต์คอนเทนต์ลง Facebook และ Instagram ด้วยพลังของ AI</p>
         </header>
 
@@ -1015,6 +1022,49 @@ const handlePublish = async () => {
           </div>
         </div>
       </main>
+
+      {/* Floating Action Buttons */}
+      <div className="fixed bottom-6 right-6 flex flex-col items-end space-y-3 z-40">
+        <div className="group relative flex items-center">
+          <span className="absolute right-full mr-3 px-2 py-1 bg-gray-700 text-white text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap shadow-lg">
+            แชทกับ AI
+          </span>
+          <button
+            onClick={() => setIsChatModalOpen(true)}
+            disabled={isAiDisabled}
+            className="w-14 h-14 bg-indigo-600 text-white rounded-full flex items-center justify-center shadow-lg hover:bg-indigo-700 transition-all transform hover:scale-110 disabled:bg-gray-400 disabled:cursor-not-allowed disabled:transform-none"
+            aria-label="Open AI Chat"
+          >
+            <ChatIcon />
+          </button>
+        </div>
+        <div className="group relative flex items-center">
+          <span className="absolute right-full mr-3 px-2 py-1 bg-gray-700 text-white text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap shadow-lg">
+            สอนการใช้งาน
+          </span>
+          <button
+            onClick={() => setIsInstructionsOpen(true)}
+            className="w-14 h-14 bg-blue-500 text-white rounded-full flex items-center justify-center shadow-lg hover:bg-blue-600 transition-all transform hover:scale-110"
+            aria-label="Open Help"
+          >
+            <HelpIcon />
+          </button>
+        </div>
+        <div className="group relative flex items-center">
+          <span className="absolute right-full mr-3 px-2 py-1 bg-green-600 text-white text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap shadow-lg">
+            เพิ่มเพื่อน LINE
+          </span>
+          <button
+            onClick={() => setIsLineQrModalOpen(true)}
+            className="w-14 h-14 bg-green-500 text-white rounded-full flex items-center justify-center shadow-lg hover:bg-green-600 transition-all transform hover:scale-110"
+            aria-label="Add LINE Friend"
+          >
+            <LineIcon />
+          </button>
+        </div>
+      </div>
+
+
       <footer className="text-center py-6 text-sm text-gray-500 dark:text-gray-400">
         <p>พัฒนาโดย Candelaz @2025</p>
         <a 
@@ -1028,6 +1078,15 @@ const handlePublish = async () => {
       </footer>
       <InstructionsModal isOpen={isInstructionsOpen} onClose={() => setIsInstructionsOpen(false)} />
       <ApiKeyModal isOpen={isApiKeyModalOpen} onClose={() => setIsApiKeyModalOpen(false)} />
+      <ChatModal 
+        isOpen={isChatModalOpen} 
+        onClose={() => setIsChatModalOpen(false)} 
+        isApiConnected={googleApiStatus === 'success'}
+      />
+      <LineQrModal 
+        isOpen={isLineQrModalOpen}
+        onClose={() => setIsLineQrModalOpen(false)}
+      />
     </>
   );
 };
