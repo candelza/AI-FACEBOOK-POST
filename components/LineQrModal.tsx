@@ -41,7 +41,14 @@ export const LineQrModal: React.FC<LineQrModalProps> = ({ isOpen, onClose }) => 
              </div>
              <div>
                 <p className="text-sm">หรือเพิ่มด้วย ID</p>
-                <p className="font-bold text-lg tracking-wider bg-gray-100 dark:bg-gray-700 py-2 px-4 rounded-lg inline-block mt-1">{lineId}</p>
+                <a 
+                  href="https://line.me/ti/p/5KxC476XiY"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-bold text-lg tracking-wider bg-gray-100 dark:bg-gray-700 py-2 px-4 rounded-lg inline-block mt-1 text-gray-900 dark:text-gray-100 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+                >
+                  {lineId}
+                </a>
              </div>
           </div>
         </div>
