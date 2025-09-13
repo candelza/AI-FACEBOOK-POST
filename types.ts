@@ -17,3 +17,8 @@ export interface LogEntry {
   facebookPostId?: string;
   privacy?: 'published' | 'unpublished';
 }
+
+export interface PromptTemplate {
+  name: string;
+  value: string;
+}

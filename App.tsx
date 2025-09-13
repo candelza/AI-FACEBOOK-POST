@@ -22,10 +22,13 @@ import { LineQrModal } from './components/LineQrModal';
 import { HelpIcon } from './components/icons/HelpIcon';
 import { SunIcon } from './components/icons/SunIcon';
 import { MoonIcon } from './components/icons/MoonIcon';
-import type { UploadedImage, LogEntry } from './types';
+import { SaveIcon } from './components/icons/SaveIcon';
+import { SaveTemplateModal } from './components/SaveTemplateModal';
+import { ManageTemplatesModal } from './components/ManageTemplatesModal';
+import type { UploadedImage, LogEntry, PromptTemplate } from './types';
 import { generatePost, generateImage, generateVideo, verifyApiKey } from './services/geminiService';
 
-const promptTemplates = [
+const initialPromptTemplates: PromptTemplate[] = [
   { name: '— เลือกเทมเพลต หรือ พิมพ์ด้านล่าง —', value: '' },
   { name: 'โทนสนุกสนาน', value: 'เขียนแคปชั่นให้ดูสนุกสนาน, เป็นกันเอง, และใช้อิโมจิเยอะๆ เพื่อสร้างการมีส่วนร่วม' },
   { name: 'โทนมืออาชีพ', value: 'เขียนแคปชั่นด้วยภาษาที่เป็นทางการ, สุภาพ, และน่าเชื่อถือ เน้นการให้ข้อมูลที่ชัดเจน' },
@@ -43,6 +46,8 @@ const promptTemplates = [
   { name: 'เน้นประโยชน์ที่ลูกค้าจะได้รับ', value: 'เขียนแคปชั่นโดยเน้นที่คุณประโยชน์ (Benefit) ของสินค้า ไม่ใช่แค่คุณสมบัติ (Feature) อธิบายว่าสินค้าจะช่วยแก้ปัญหาหรือทำให้ชีวิตของลูกค้าดีขึ้นได้อย่างไร' },
   { name: 'เรื่องเล่าจากทีมงาน', value: 'เขียนแคปชั่นในรูปแบบการเล่าเรื่อง แนะนำสมาชิกในทีม หรือเล่าถึงความท้าทายและความสำเร็จในการทำงาน เพื่อสร้างภาพลักษณ์ที่เข้าถึงง่ายและเป็นมนุษย์ให้กับแบรนด์' },
 ];
+
+const APP_STORAGE_KEY = 'aiPostAutomator_';
 
 const translateFacebookError = (error: any): string => {
   if (!error) {
@@ -199,6 +204,10 @@ export const App: React.FC = () => {
   const [temperature, setTemperature] = useState<number>(0.7);
   const [maxTokens, setMaxTokens] = useState<number>(400);
   const [captionLanguage, setCaptionLanguage] = useState<string>('Thai');
+  
+  const [promptTemplates, setPromptTemplates] = useState<PromptTemplate[]>(initialPromptTemplates);
+  const [isSaveTemplateModalOpen, setIsSaveTemplateModalOpen] = useState<boolean>(false);
+  const [isManageTemplatesModalOpen, setIsManageTemplatesModalOpen] = useState<boolean>(false);
 
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isPosting, setIsPosting] = useState<boolean>(false);
@@ -232,7 +241,7 @@ export const App: React.FC = () => {
 
   // Theme Management Effect
   useEffect(() => {
-    const savedTheme = localStorage.getItem('theme') as 'light' | 'dark' | null;
+    const savedTheme = localStorage.getItem(`${APP_STORAGE_KEY}theme`) as 'light' | 'dark' | null;
     const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
     const initialTheme = savedTheme || (prefersDark ? 'dark' : 'light');
     setTheme(initialTheme);
@@ -244,7 +253,7 @@ export const App: React.FC = () => {
     } else {
       document.documentElement.classList.remove('dark');
     }
-    localStorage.setItem('theme', theme);
+    localStorage.setItem(`${APP_STORAGE_KEY}theme`, theme);
   }, [theme]);
 
   const toggleTheme = () => {
@@ -261,15 +270,19 @@ export const App: React.FC = () => {
 
   useEffect(() => {
     try {
-      const savedHistory = localStorage.getItem('fbPostHistory');
+      const savedHistory = localStorage.getItem(`${APP_STORAGE_KEY}fbPostHistory`);
       if (savedHistory) {
         setLogHistory(JSON.parse(savedHistory));
       }
-      const savedApiKey = localStorage.getItem('googleApiKey');
+      const savedApiKey = localStorage.getItem(`${APP_STORAGE_KEY}googleApiKey`);
       if (savedApiKey) {
         setGoogleApiKey(savedApiKey);
         setGoogleApiStatus('idle');
         setGoogleApiMessage('API Key ที่บันทึกไว้ถูกโหลดแล้ว กรุณาทดสอบการเชื่อมต่อ');
+      }
+      const savedTemplates = localStorage.getItem(`${APP_STORAGE_KEY}promptTemplates`);
+      if (savedTemplates) {
+        setPromptTemplates(JSON.parse(savedTemplates));
       }
     } catch (e) {
       console.error("Failed to parse data from localStorage", e);
@@ -280,11 +293,19 @@ export const App: React.FC = () => {
     if (logHistory.length === 0) return;
     try {
       const historyToSave = logHistory.length > 50 ? logHistory.slice(0, 50) : logHistory;
-      localStorage.setItem('fbPostHistory', JSON.stringify(historyToSave));
+      localStorage.setItem(`${APP_STORAGE_KEY}fbPostHistory`, JSON.stringify(historyToSave));
     } catch (e) {
        console.error("Could not save history to localStorage. It might be full.", e);
     }
   }, [logHistory]);
+
+  useEffect(() => {
+    try {
+        localStorage.setItem(`${APP_STORAGE_KEY}promptTemplates`, JSON.stringify(promptTemplates));
+    } catch (e) {
+        console.error("Could not save templates to localStorage.", e);
+    }
+  }, [promptTemplates]);
   
   const handleVerifyGoogleApiKey = async () => {
     if (!googleApiKey) {
@@ -303,7 +324,7 @@ export const App: React.FC = () => {
     if (success) {
       setGoogleApiStatus('success');
       try {
-        localStorage.setItem('googleApiKey', googleApiKey);
+        localStorage.setItem(`${APP_STORAGE_KEY}googleApiKey`, googleApiKey);
       } catch (e) {
         console.error("Could not save API Key to localStorage.", e);
         setGoogleApiMessage(prev => `${prev} (แต่ไม่สามารถบันทึก API Key ลงในเบราว์เซอร์ได้)`);
@@ -337,8 +358,6 @@ export const App: React.FC = () => {
 
   const handleImageUpload = (image: UploadedImage | null) => {
     if (!image) {
-        // This is called with null to clear a single uploader, 
-        // which we don't want to affect the carousel array.
         if (postType !== 'carousel') {
              setUploadedMedia([]);
         }
@@ -347,10 +366,21 @@ export const App: React.FC = () => {
 
     if (postType === 'carousel') {
         if (image.mediaType === 'image') {
-            setUploadedMedia(prev => [...prev, image]);
+            setUploadedMedia(prev => {
+              // Only add if under the limit
+              if (prev.length < 10) {
+                clearNotifications();
+                return [...prev, image];
+              }
+              // If at or over the limit, set an error and don't add
+              setError("คุณสามารถอัปโหลดรูปภาพได้สูงสุด 10 รูปสำหรับโพสต์แบบ Carousel");
+              return prev;
+            });
         }
-        // else: silently ignore video uploads for carousel
+        // Silently ignore video uploads for carousel. The uploader component already restricts this.
     } else {
+        // For single image/video posts
+        clearNotifications();
         setUploadedMedia([image]);
     }
   };
@@ -760,6 +790,28 @@ const handlePublish = async () => {
     }
   };
 
+  const handleSaveTemplate = (name: string) => {
+    if (!name.trim() || !customPrompt.trim()) return;
+    const newTemplate = { name, value: customPrompt };
+    // Avoid duplicates by checking value
+    if (!promptTemplates.some(t => t.value.trim() === newTemplate.value.trim())) {
+        setPromptTemplates(prev => [...prev, newTemplate]);
+    }
+    setIsSaveTemplateModalOpen(false);
+  };
+
+  const handleDeleteTemplate = (valueToDelete: string) => {
+    setPromptTemplates(prev => prev.filter(t => t.value !== valueToDelete));
+  };
+
+  const handleResetTemplates = () => {
+    if (window.confirm('คุณแน่ใจหรือไม่ว่าต้องการรีเซ็ตเทมเพลตทั้งหมดกลับเป็นค่าเริ่มต้น? การดำเนินการนี้ไม่สามารถย้อนกลับได้')) {
+        setPromptTemplates(initialPromptTemplates);
+        setIsManageTemplatesModalOpen(false);
+    }
+  };
+
+
   const isAiDisabled = googleApiStatus !== 'success';
   const isPostButtonDisabled = !generatedPost || uploadedMedia.length === 0 || !activePostId || isPosting || fbConnectionStatus !== 'success';
 
@@ -968,9 +1020,19 @@ const handlePublish = async () => {
                   </div>
                   <div>
                     <label htmlFor="prompt-template" className="mb-2 font-semibold text-gray-700 dark:text-gray-300 block">เลือกเทมเพลต (ไม่บังคับ)</label>
-                    <select id="prompt-template" onChange={e => setCustomPrompt(e.target.value)} className="w-full p-2 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md">
-                      {promptTemplates.map(t => <option key={t.name} value={t.value}>{t.name}</option>)}
-                    </select>
+                    <div className="flex items-center gap-2">
+                        <select id="prompt-template" value={customPrompt} onChange={e => setCustomPrompt(e.target.value)} className="w-full p-2 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md">
+                            {promptTemplates.map(t => <option key={t.name} value={t.value}>{t.name}</option>)}
+                        </select>
+                        <button 
+                            onClick={() => setIsManageTemplatesModalOpen(true)}
+                            className="p-2 bg-gray-200 dark:bg-gray-600 rounded-md hover:bg-gray-300 dark:hover:bg-gray-500 transition-colors"
+                            aria-label="จัดการเทมเพลต"
+                            title="จัดการเทมเพลต"
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-gray-600 dark:text-gray-300" viewBox="0 0 20 20" fill="currentColor"><path d="M5 4a1 1 0 00-2 0v7.268a2 2 0 000 3.464V16a1 1 0 102 0v-1.268a2 2 0 000-3.464V4zM11 4a1 1 0 10-2 0v1.268a2 2 0 000 3.464V16a1 1 0 102 0V8.732a2 2 0 000-3.464V4zM16 3a1 1 0 011 1v7.268a2 2 0 010 3.464V16a1 1 0 11-2 0v-1.268a2 2 0 010-3.464V4a1 1 0 011-1z" /></svg>
+                        </button>
+                    </div>
                   </div>
                    <div>
                     <label htmlFor="custom-prompt" className="mb-2 font-semibold text-gray-700 dark:text-gray-300 block">คำสั่งเพิ่มเติม (ภาษาไทย)</label>
@@ -982,6 +1044,16 @@ const handlePublish = async () => {
                         placeholder="เช่น: เน้นโปรโมชั่น 1 แถม 1, เขียนให้ดูวัยรุ่นขึ้น, เพิ่มคำถามตอนท้าย"
                         className="w-full p-2 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition"
                     ></textarea>
+                    <div className="mt-2 flex justify-end">
+                      <button 
+                        onClick={() => setIsSaveTemplateModalOpen(true)}
+                        disabled={!customPrompt.trim()}
+                        className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-indigo-700 dark:text-indigo-300 bg-indigo-100 dark:bg-indigo-900/50 rounded-md hover:bg-indigo-200 dark:hover:bg-indigo-900 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                      >
+                        <SaveIcon />
+                        <span>บันทึกเป็นเทมเพลต</span>
+                      </button>
+                    </div>
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                      <div>
@@ -1138,6 +1210,19 @@ const handlePublish = async () => {
       <LineQrModal 
         isOpen={isLineQrModalOpen}
         onClose={() => setIsLineQrModalOpen(false)}
+      />
+      <SaveTemplateModal
+        isOpen={isSaveTemplateModalOpen}
+        onClose={() => setIsSaveTemplateModalOpen(false)}
+        onSave={handleSaveTemplate}
+        currentPromptValue={customPrompt}
+      />
+      <ManageTemplatesModal
+        isOpen={isManageTemplatesModalOpen}
+        onClose={() => setIsManageTemplatesModalOpen(false)}
+        templates={promptTemplates}
+        onDelete={handleDeleteTemplate}
+        onReset={handleResetTemplates}
       />
     </>
   );
