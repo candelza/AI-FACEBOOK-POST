@@ -27,6 +27,10 @@ import { SaveTemplateModal } from './components/SaveTemplateModal';
 import { ManageTemplatesModal } from './components/ManageTemplatesModal';
 import type { UploadedImage, LogEntry, PromptTemplate } from './types';
 import { generatePost, generateImage, generateVideo, verifyApiKey } from './services/geminiService';
+import { LinkIcon } from './components/icons/LinkIcon';
+import { PhoneIcon } from './components/icons/PhoneIcon';
+import { EmailIcon } from './components/icons/EmailIcon';
+
 
 const initialPromptTemplates: PromptTemplate[] = [
   { name: '— เลือกเทมเพลต หรือ พิมพ์ด้านล่าง —', value: '' },
@@ -48,6 +52,15 @@ const initialPromptTemplates: PromptTemplate[] = [
 ];
 
 const APP_STORAGE_KEY = 'aiPostAutomator_';
+
+const linkConfig = {
+    url: { name: 'URL', label: 'ลิงก์สินค้า (เช่น Shopee, Lazada)', placeholder: 'https://...', type: 'url' as const, icon: <LinkIcon /> },
+    phone: { name: 'Phone', label: 'เบอร์โทรติดต่อ', placeholder: '081-234-5678', type: 'tel' as const, icon: <PhoneIcon /> },
+    line: { name: 'LINE', label: 'LINE ID', placeholder: '@candelaz', type: 'text' as const, icon: <LineIcon size={20} /> },
+    email: { name: 'Email', label: 'Email', placeholder: 'contact@example.com', type: 'email' as const, icon: <EmailIcon /> },
+};
+
+type LinkType = keyof typeof linkConfig;
 
 const translateFacebookError = (error: any): string => {
   if (!error) {
@@ -193,7 +206,8 @@ export const App: React.FC = () => {
   const [instagramAccountId, setInstagramAccountId] = useState<string>('');
   
   const [sheetData, setSheetData] = useState<string>('');
-  const [shopeeLink, setShopeeLink] = useState<string>('');
+  const [linkType, setLinkType] = useState<LinkType>('url');
+  const [linkValue, setLinkValue] = useState<string>('');
   const [uploadedMedia, setUploadedMedia] = useState<UploadedImage[]>([]);
   const [generatedPost, setGeneratedPost] = useState<string>('');
   const [customPrompt, setCustomPrompt] = useState<string>('');
@@ -453,14 +467,28 @@ export const App: React.FC = () => {
       const caption = await generatePost(sheetData, uploadedMedia, postType, customPrompt, temperature, maxTokens, captionLanguage);
       
       let finalPost = caption.trim();
-      const linkToUse = shopeeLink.trim();
+      const linkTrimmedValue = linkValue.trim();
 
-      if (linkToUse) {
-        // Ensure the link has a protocol for better clickability on platforms.
-        const fullLink = !(linkToUse.startsWith('http://') || linkToUse.startsWith('https://'))
-          ? `https://${linkToUse}`
-          : linkToUse;
-        finalPost = `${finalPost}\n\n🛒 สั่งซื้อเลย: ${fullLink}`;
+      if (linkTrimmedValue) {
+        let linkText = '';
+        switch (linkType) {
+            case 'url':
+                const fullLink = !(linkTrimmedValue.startsWith('http://') || linkTrimmedValue.startsWith('https://'))
+                    ? `https://${linkTrimmedValue}`
+                    : linkTrimmedValue;
+                linkText = `🛒 สั่งซื้อเลย: ${fullLink}`;
+                break;
+            case 'phone':
+                linkText = `📞 สอบถามโทร: ${linkTrimmedValue}`;
+                break;
+            case 'line':
+                linkText = `✅ แอดไลน์: ${linkTrimmedValue}`;
+                break;
+            case 'email':
+                linkText = `📧 ติดต่ออีเมล: ${linkTrimmedValue}`;
+                break;
+        }
+        finalPost = `${finalPost}\n\n${linkText}`;
       }
       
       setGeneratedPost(finalPost);
@@ -923,12 +951,31 @@ const handlePublish = async () => {
                         ></textarea>
                         <button onClick={handleDownloadExample} className="text-sm text-indigo-600 dark:text-indigo-400 hover:underline">ดาวน์โหลดไฟล์ตัวอย่าง (.csv)</button>
                     </div>
-                    <TextInput 
-                        label="ลิงก์สินค้า (เช่น Shopee, Lazada)" 
-                        value={shopeeLink} 
-                        onChange={e => setShopeeLink(e.target.value)} 
-                        placeholder="https://..."
-                    />
+                    <div>
+                        <label className="mb-2 font-semibold text-gray-700 dark:text-gray-300 block">ช่องทางการติดต่อ/สั่งซื้อ</label>
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-1 rounded-lg bg-gray-100 dark:bg-gray-700 p-1 mb-4">
+                            {(Object.keys(linkConfig) as LinkType[]).map((type) => (
+                                <button
+                                    key={type}
+                                    onClick={() => {
+                                        setLinkType(type);
+                                        setLinkValue(''); // Clear value on type change
+                                    }}
+                                    className={`flex items-center justify-center gap-2 w-full px-3 py-2 text-sm font-medium rounded-md transition-colors ${linkType === type ? 'bg-white dark:bg-gray-900 text-indigo-700 dark:text-indigo-300 shadow' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'}`}
+                                >
+                                    {linkConfig[type].icon}
+                                    <span className="hidden sm:inline">{linkConfig[type].name}</span>
+                                </button>
+                            ))}
+                        </div>
+                        <TextInput 
+                            label={linkConfig[linkType].label}
+                            value={linkValue}
+                            onChange={e => setLinkValue(e.target.value)}
+                            placeholder={linkConfig[linkType].placeholder}
+                            type={linkConfig[linkType].type}
+                        />
+                    </div>
                 </div>
             </Card>
 
